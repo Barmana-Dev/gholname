@@ -1,0 +1,193 @@
+/* صفحه اصلی قولنامه — همه‌ی قواعد با پیشوند .gh-home محدود شده‌اند تا روی بقیه‌ی پروژه اثری نگذارند */
+.gh-home {
+  --gh-navy: #15314b;
+  --gh-navy-50: #eef3f8;
+  --gh-navy-100: #dce6f0;
+  --gh-navy-200: #b9cce0;
+  --gh-teal: #0d9488;
+  --gh-teal-700: #0f766e;
+  --gh-teal-50: #f0fdfa;
+  --gh-teal-100: #ccfbf1;
+  --gh-ink: #1f2937;
+  --gh-shadow: 0 1px 2px rgba(21, 49, 75, 0.06), 0 4px 16px rgba(21, 49, 75, 0.06);
+  --gh-shadow-pop: 0 10px 40px rgba(21, 49, 75, 0.18);
+  background: #f7f9fc;
+  color: var(--gh-ink);
+  line-height: 1.7;
+  overflow-x: hidden;
+}
+.gh-home *,
+.gh-home *::before,
+.gh-home *::after { box-sizing: border-box; }
+.gh-home h1, .gh-home h2, .gh-home h3, .gh-home p, .gh-home ul, .gh-home ol { margin: 0; padding: 0; }
+.gh-home ul, .gh-home ol { list-style: none; }
+.gh-home h1, .gh-home h2, .gh-home h3 { color: var(--gh-navy); }
+.gh-home :focus-visible { outline: 2px solid var(--gh-teal); outline-offset: 2px; }
+
+.gh-wrap { width: min(1152px, calc(100% - 32px)); margin-inline: auto; }
+.gh-narrow { width: min(768px, calc(100% - 32px)); margin-inline: auto; }
+@media (min-width: 640px) {
+  .gh-wrap { width: min(1152px, calc(100% - 48px)); }
+  .gh-narrow { width: min(768px, calc(100% - 48px)); }
+}
+
+/* ---------- دکمه‌ها ---------- */
+.gh-home .gh-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; min-height: 52px; padding: 0 28px;
+  border: 1px solid transparent; border-radius: 12px;
+  font-size: 1rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  transition: background-color 0.2s, color 0.2s;
+}
+@media (min-width: 640px) { .gh-home .gh-btn { width: auto; font-size: 1.125rem; } }
+.gh-home .gh-btn-primary { background: var(--gh-teal); color: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.gh-home .gh-btn-primary:hover { background: var(--gh-teal-700); }
+.gh-home .gh-btn-secondary { background: #fff; color: var(--gh-navy); border-color: var(--gh-navy-200); }
+.gh-home .gh-btn-secondary:hover { background: var(--gh-navy-50); }
+.gh-home .gh-btn-ghost-light { color: #fff; border-color: rgba(255, 255, 255, 0.4); }
+.gh-home .gh-btn-ghost-light:hover { background: rgba(255, 255, 255, 0.1); }
+
+/* نور متحرک روی دکمه */
+.gh-shine { position: relative; overflow: hidden; isolation: isolate; }
+.gh-shine::after {
+  content: ""; position: absolute; top: -20%; bottom: -20%; left: 0; width: 45%;
+  background: linear-gradient(100deg, transparent 0%, rgba(255, 255, 255, 0.65) 50%, transparent 100%);
+  transform: translateX(-160%) skewX(-20deg);
+  animation: gh-shine 2.8s ease-in-out infinite; pointer-events: none;
+}
+@keyframes gh-shine {
+  0% { transform: translateX(-160%) skewX(-20deg); }
+  55%, 100% { transform: translateX(380%) skewX(-20deg); }
+}
+
+/* ---------- بخش بالای صفحه ---------- */
+.gh-hero { background: linear-gradient(to bottom, var(--gh-navy-50), #f7f9fc); }
+.gh-hero-grid { display: grid; gap: 40px; align-items: center; padding: 48px 0; }
+@media (min-width: 640px) { .gh-hero-grid { padding: 64px 0; } }
+@media (min-width: 1024px) { .gh-hero-grid { grid-template-columns: 1fr 1fr; } }
+.gh-badge {
+  display: inline-flex; padding: 4px 12px; border-radius: 999px;
+  background: #fef3c7; color: #92400e; font-size: 0.75rem; font-weight: 700;
+}
+.gh-h1 { margin-top: 16px !important; font-size: 1.875rem; font-weight: 800; line-height: 1.7; }
+@media (min-width: 640px) { .gh-h1 { font-size: 2.25rem; } }
+.gh-lead { margin-top: 16px !important; max-width: 36rem; font-size: 1rem; line-height: 2.25; color: #334155; }
+.gh-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 28px; }
+@media (min-width: 640px) { .gh-actions { flex-direction: row; } }
+.gh-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 20px !important; font-size: 0.875rem; line-height: 1.75; color: #475569; }
+.gh-note svg { flex-shrink: 0; margin-top: 4px; color: var(--gh-teal); }
+
+/* افکت تایپ */
+.gh-type { position: relative; display: block; }
+.gh-type-ghost { visibility: hidden; }
+.gh-type-live { position: absolute; inset: 0; }
+.gh-caret {
+  display: inline-block; width: 2px; height: 1.1em; margin-inline-start: 3px;
+  vertical-align: text-bottom; background: var(--gh-teal); animation: gh-blink 0.9s steps(1) infinite;
+}
+@keyframes gh-blink { 50% { opacity: 0; } }
+
+/* عکس و کارت وضعیت */
+.gh-visual { position: relative; padding-bottom: 32px; width: 100%; max-width: 36rem; margin-inline: auto; }
+@media (min-width: 640px) { .gh-visual { padding-inline-end: 24px; } }
+@media (min-width: 1024px) { .gh-visual { max-width: none; } }
+.gh-circle-a { position: absolute; inset-inline-start: -40px; top: -40px; width: 176px; height: 176px; border-radius: 50%; background: var(--gh-teal-100); }
+.gh-circle-b { position: absolute; inset-inline-end: -8px; bottom: -8px; width: 96px; height: 96px; border-radius: 50%; border: 16px solid var(--gh-teal-100); }
+.gh-photo { position: relative; z-index: 1; overflow: hidden; border-radius: 32px 10px 32px 10px; background: var(--gh-navy-50); box-shadow: var(--gh-shadow-pop); }
+.gh-photo img { display: block; width: 100%; height: 300px; object-fit: cover; }
+@media (min-width: 640px) { .gh-photo img { height: 420px; } }
+.gh-photo-fallback { padding: 24px; }
+.gh-art { display: block; width: 100%; height: auto; }
+.gh-status {
+  position: relative; z-index: 2; display: flex; align-items: center; gap: 12px;
+  max-width: 384px; margin: -32px 0 0; margin-inline-start: 16px; padding: 14px;
+  background: rgba(255, 255, 255, 0.95); border: 1px solid #fff; border-radius: 12px; box-shadow: var(--gh-shadow-pop);
+}
+@media (min-width: 640px) { .gh-status { margin-top: -40px; margin-inline-start: 40px; } }
+.gh-status-ico { display: flex; width: 44px; height: 44px; align-items: center; justify-content: center; border-radius: 12px; background: var(--gh-teal-50); color: var(--gh-teal); }
+.gh-status-text { display: flex; flex-direction: column; }
+.gh-status-text small { font-size: 0.75rem; color: #64748b; }
+.gh-status-text b { font-size: 0.875rem; color: var(--gh-navy); }
+.gh-status-dot { margin-inline-start: auto; width: 10px; height: 10px; border-radius: 50%; background: #14b8a6; }
+
+/* دکمه‌ی پایین‌آمدن */
+.gh-scroll-row { display: flex; justify-content: center; padding-bottom: 24px; }
+.gh-home .gh-scroll {
+  display: flex; width: 48px; height: 48px; align-items: center; justify-content: center;
+  border: 1px solid var(--gh-navy-200); border-radius: 50%; background: #fff; color: var(--gh-navy);
+  box-shadow: var(--gh-shadow); cursor: pointer; transition: background-color 0.2s, color 0.2s;
+}
+.gh-home .gh-scroll:hover { background: var(--gh-navy); color: #fff; }
+.gh-scroll svg { animation: gh-bounce 1s infinite; }
+@keyframes gh-bounce {
+  0%, 100% { transform: translateY(-20%); animation-timing-function: cubic-bezier(0.8, 0, 1, 1); }
+  50% { transform: none; animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
+}
+
+/* ---------- بخش‌ها ---------- */
+.gh-section { padding: 56px 0; scroll-margin-top: 80px; }
+.gh-section-white { background: #fff; }
+.gh-title { font-size: 1.5rem; font-weight: 800; }
+@media (min-width: 640px) { .gh-title { font-size: 1.875rem; } }
+.gh-title-mb { margin-bottom: 24px !important; }
+.gh-sub { margin-top: 8px !important; color: #475569; }
+.gh-sub-sm { margin-top: 12px !important; font-size: 0.875rem; line-height: 2; }
+.gh-grid { display: grid; gap: 16px; grid-template-columns: 1fr; margin-top: 32px; }
+@media (min-width: 640px) { .gh-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1024px) { .gh-grid { grid-template-columns: repeat(4, 1fr); } }
+
+.gh-card { background: #fff; border: 1px solid var(--gh-navy-100); border-radius: 20px; box-shadow: var(--gh-shadow); }
+.gh-ico { display: flex; width: 48px; height: 48px; align-items: center; justify-content: center; border-radius: 12px; background: var(--gh-navy-50); color: var(--gh-navy); }
+.gh-ico-navy { width: 44px; height: 44px; background: var(--gh-navy); color: #fff; }
+
+.gh-step { padding: 20px; }
+.gh-step-head { display: flex; align-items: center; gap: 12px; }
+.gh-step-n { font-size: 0.875rem; font-weight: 700; color: var(--gh-teal-700); }
+.gh-step h3 { margin-top: 16px; font-size: 1.125rem; font-weight: 800; }
+.gh-step p { margin-top: 4px; font-size: 0.875rem; line-height: 1.75; color: #475569; }
+
+/* کارت‌های نوع ملک */
+.gh-home .gh-prop { display: block; padding: 16px; text-align: start; color: inherit; text-decoration: none; transition: border-color 0.2s, box-shadow 0.2s; }
+.gh-prop:hover, .gh-prop:focus-visible { border-color: #14b8a6; box-shadow: var(--gh-shadow-pop); }
+.gh-prop strong { display: block; margin-top: 12px; font-size: 1rem; font-weight: 800; color: var(--gh-navy); }
+.gh-prop-text { display: block; margin-top: 4px; font-size: 0.875rem; line-height: 1.75; color: #475569; }
+
+.gh-split { display: grid; gap: 32px; }
+@media (min-width: 1024px) { .gh-split { grid-template-columns: 1fr 1fr; } }
+.gh-doclist li { display: flex; align-items: center; gap: 12px; padding: 16px 20px; font-size: 0.875rem; font-weight: 600; color: var(--gh-navy); }
+.gh-doclist li + li { border-top: 1px solid var(--gh-navy-100); }
+.gh-doclist svg { flex-shrink: 0; color: var(--gh-teal); }
+
+.gh-why { padding: 20px; border: 1px solid var(--gh-navy-100); border-radius: 20px; background: #f7f9fc; }
+.gh-why > svg { color: var(--gh-teal); }
+.gh-why h3 { margin-top: 12px; font-size: 1rem; font-weight: 800; }
+.gh-why p { margin-top: 4px; font-size: 0.875rem; line-height: 1.75; color: #475569; }
+
+/* پرسش‌های متداول */
+.gh-faq { display: grid; gap: 12px; }
+.gh-faq-item { overflow: hidden; }
+.gh-faq-item h3 { font-size: 1rem; }
+.gh-home .gh-faq-item button {
+  display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 16px 20px; border: 0; background: transparent; text-align: start;
+  font-size: 1rem; font-weight: 700; color: var(--gh-navy); cursor: pointer;
+}
+.gh-chev { flex-shrink: 0; transition: transform 0.2s; }
+.gh-chev.open { transform: rotate(180deg); }
+.gh-faq-body { padding: 16px 20px; border-top: 1px solid var(--gh-navy-100); font-size: 0.875rem; line-height: 2; color: #334155; }
+.gh-home .gh-more { display: inline-flex; align-items: center; gap: 8px; margin-top: 20px; font-size: 0.875rem; font-weight: 700; color: var(--gh-teal-700); text-decoration: none; }
+.gh-home .gh-more:hover { text-decoration: underline; }
+
+/* دعوت پایانی */
+.gh-cta-section { padding: 0 0 24px; }
+.gh-cta { padding: 40px 24px; border-radius: 20px; background: var(--gh-navy); text-align: center; }
+@media (min-width: 640px) { .gh-cta { padding: 40px 48px; } }
+.gh-home .gh-cta h2 { color: #fff; font-size: 1.5rem; font-weight: 800; }
+@media (min-width: 640px) { .gh-home .gh-cta h2 { font-size: 1.875rem; } }
+.gh-cta p { max-width: 36rem; margin: 12px auto 0 !important; font-size: 0.875rem; line-height: 2; color: var(--gh-navy-100); }
+.gh-cta-actions { display: flex; flex-direction: column; gap: 12px; justify-content: center; margin-top: 24px; }
+@media (min-width: 640px) { .gh-cta-actions { flex-direction: row; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .gh-shine::after, .gh-caret, .gh-scroll svg { animation: none; }
+}

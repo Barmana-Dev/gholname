@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+uploads/*
+!uploads/.gitkeep
+tmp/
+*.log
+.DS_Store
+coverage/
+*.tsbuildinfo
+client/vite.config.js
+client/vite.config.d.ts

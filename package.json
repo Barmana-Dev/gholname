@@ -1,0 +1,31 @@
+{
+  "name": "regbroker",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently -n API,WEB -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w server && npm run build -w client",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w client",
+    "test": "npm run test -w server && npm run test -w client",
+    "lint": "npm run lint -w server && npm run lint -w client",
+    "db:setup:xampp": "bash database/setup-xampp.sh",
+    "db:migrate": "bash database/migrate.sh",
+    "db:migrate:status": "bash database/migrate.sh --status",
+    "db:validate": "bash database/validate-schema.sh",
+    "db:check": "bash scripts/database-check.sh",
+    "backup": "bash database/backup.sh",
+    "restore": "bash database/restore.sh",
+    "security:scan": "bash scripts/security-scan.sh"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prettier": "^3.9.6"
+  },
+  "dependencies": {
+    "@fontsource/aref-ruqaa": "^5.3.0"
+  }
+}
