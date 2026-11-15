@@ -1,3 +1,6 @@
+-- DEVELOPMENT ONLY. Creates well-known accounts sharing one password.
+-- Never load this file in production: the API refuses to start in production
+-- while any account still uses the seed password hash (see server/src/seed-guard.ts).
 USE regbroker;
 INSERT INTO roles (code, title_fa) VALUES
 ('applicant','متقاضی'),('representative','نماینده یا وکیل'),('registry_expert','کارشناس ثبتی و حقوقی'),

@@ -1,4 +1,10 @@
 import {
+  clearClientSessionData,
+  clearDraft,
+  loadDraft,
+  saveDraft as persistDraft,
+} from "./drafts";
+import {
   createContext,
   useContext,
   useEffect,
@@ -192,10 +198,11 @@ export function Logo({
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
-  login: (token: string, user: User) => void;
+  login: (user: User) => void;
   logout: () => void;
 }
 interface MeResponse {
+  mustChangePassword?: boolean;
   id: number;
   fullName: string;
   role: string;
@@ -203,18 +210,13 @@ interface MeResponse {
 }
 const AuthContext = createContext<AuthContextValue | null>(null);
 function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("regbroker_user") ?? "null");
-    } catch {
-      return null;
-    }
-  });
-  const [loading, setLoading] = useState(
-    Boolean(localStorage.getItem("regbroker_token")),
-  );
+  // The session cookie is HttpOnly, so the browser cannot tell whether it is
+  // signed in; ask the server once on load. Nothing identifying is cached in
+  // localStorage.
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
-    if (!localStorage.getItem("regbroker_token")) return;
+    clearClientSessionData(); // drop tokens left by older versions
     request<MeResponse>("/auth/me")
       .then((me) =>
         setUser({
@@ -222,30 +224,24 @@ function AuthProvider({ children }: { children: ReactNode }) {
           name: me.fullName,
           role: me.role,
           capabilities: me.capabilities,
+          mustChangePassword: me.mustChangePassword,
         }),
       )
-      .catch(() => {
-        localStorage.removeItem("regbroker_token");
-        localStorage.removeItem("regbroker_user");
-        setUser(null);
-      })
+      .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
   const value = useMemo(
     () => ({
       user,
       loading,
-      login: (token: string, next: User) => {
-        localStorage.setItem("regbroker_token", token);
-        localStorage.setItem("regbroker_user", JSON.stringify(next));
+      login: (next: User) => {
         setUser(next);
       },
       logout: () => {
         request("/auth/logout", { method: "POST", body: "{}" }).catch(
           () => undefined,
         );
-        localStorage.removeItem("regbroker_token");
-        localStorage.removeItem("regbroker_user");
+        clearClientSessionData();
         setUser(null);
       },
     }),
@@ -264,10 +260,10 @@ function Header() {
     <>
       <div className="legal-strip">
         <span>
-          <ShieldCheck size={16} /> فعالیت در حدود مجوز و تحت نظارت سازمان ثبت
-          اسناد و املاک کشور
+          <ShieldCheck size={16} /> نسخهٔ نمایشی؛ سامانهٔ رسمی دولتی نیست و
+          هنوز به سامانه‌های سازمان ثبت متصل نشده است
         </span>
-        <span>پرداخت فقط از درگاه رسمی کارگزاری</span>
+        <span>پرداخت آنلاین در این نسخه غیرفعال است</span>
       </div>
       <header className="site-header">
         <div className="container header-inner">
@@ -360,7 +356,12 @@ function Footer() {
         <div>
           <h4>تماس و پاسخ‌گویی</h4>
           <span>
-            <Phone size={16} /> ۰۲۱-۰۰۰۰۰۰۰۰
+            <Phone size={16} />{" "}
+            {SUPPORT_PHONE ? (
+              <bdi dir="ltr">{SUPPORT_PHONE}</bdi>
+            ) : (
+              "از طریق تیکت پشتیبانی"
+            )}
           </span>
           <span>
             <Headphones size={16} /> شنبه تا چهارشنبه، ۸ تا ۱۶
@@ -671,6 +672,12 @@ function TrackingPage() {
   );
 }
 
+// Set VITE_SUPPORT_PHONE (client/.env) once a real support number exists; until
+// then no placeholder number is shown to visitors.
+const SUPPORT_PHONE = (
+  import.meta as ImportMeta & { env?: Record<string, string | undefined> }
+).env?.VITE_SUPPORT_PHONE?.trim();
+
 const staticPages: Record<
   string,
   { title: string; body: string; sections: { h: string; p: string }[] }
@@ -700,7 +707,7 @@ const staticPages: Record<
     sections: [
       {
         h: "درگاه رسمی",
-        p: "پرداخت فقط از درگاه متصل به حساب حقوقی کارگزاری انجام می‌شود.",
+        p: "پرداخت آنلاین در این نسخهٔ نمایشی غیرفعال است. پس از فعال‌سازی، پرداخت فقط از درگاه رسمی متصل به حساب حقوقی کارگزاری انجام خواهد شد.",
       },
       {
         h: "رسید الکترونیکی",
@@ -714,19 +721,23 @@ const staticPages: Record<
   },
   "/privacy": {
     title: "سیاست حفظ حریم خصوصی",
-    body: "حفاظت از اطلاعات هویتی، ثبتی، ملکی، مالی و فنی اصل بنیادین سامانه است.",
+    body: "این صفحه روشن می‌کند چه داده‌ای در مرورگر شما و چه داده‌ای روی سرور ذخیره می‌شود، چه کسی به آن دسترسی دارد و چه زمانی پاک می‌شود.",
     sections: [
       {
-        h: "جمع‌آوری حداقلی",
-        p: "تنها داده ضروری برای خدمت انتخاب‌شده دریافت و برای همان هدف پردازش می‌شود.",
+        h: "داده‌های ذخیره‌شده در مرورگر شما",
+        p: "پیش‌نویس فرم «درخواست جدید» به‌صورت موقت در حافظهٔ محلی مرورگر شما نگه‌داری می‌شود تا با بستن صفحه از دست نرود. این پیش‌نویس کدملی، شماره همراه و شناسه‌های هویتی را شامل نمی‌شود، پس از دو ساعت منقضی می‌شود و با خروج از حساب یا ثبت نهایی پاک می‌شود. نشست ورود شما در کوکی امن HttpOnly نگه‌داری می‌شود و برای اسکریپت‌های صفحه قابل خواندن نیست.",
       },
       {
-        h: "دسترسی محدود",
-        p: "دسترسی کارکنان مبتنی بر نقش است و مشاهده اطلاعات حساس ثبت می‌شود.",
+        h: "داده‌های ذخیره‌شده روی سرور",
+        p: "با «ثبت نهایی» یا ایجاد حساب، اطلاعات هویتی (رمزنگاری‌شده)، مشخصات ملک، مدارک بارگذاری‌شده، پیام‌ها و سوابق دسترسی در پایگاه دادهٔ سرور ذخیره می‌شود. در این نسخهٔ نمایشی هیچ اطلاعاتی به سامانه‌های سازمان ثبت یا درگاه پرداخت ارسال نمی‌شود.",
       },
       {
-        h: "نگهداری و افشا",
-        p: "اطلاعات تنها در مدت و حدود مجاز نگهداری و جز در موارد قانونی افشا نمی‌شود.",
+        h: "چه کسی به داده دسترسی دارد",
+        p: "خود متقاضی و کارکنانی که پرونده به نقش آن‌ها مربوط است یا به آن‌ها ارجاع شده است. هر مشاهده یا دانلود اطلاعات حساس در سوابق ممیزی ثبت می‌شود و ناظر فقط حق مشاهده دارد.",
+      },
+      {
+        h: "مدت نگهداری و پاک‌سازی",
+        p: "پرونده‌ها، اطلاعات هویتی و سوابق ممیزی ۱۲۰ ماه، سوابق پشتیبانی ۳۶ ماه و گزارش درخواست‌های API ۲۴ ماه نگه‌داری می‌شود. پیش‌نویس مرورگر پس از دو ساعت و نشست‌های ورود پس از انقضا یا خروج از حساب بی‌اعتبار می‌شوند. افشای اطلاعات جز در موارد قانونی انجام نمی‌شود.",
       },
     ],
   },
@@ -754,7 +765,9 @@ const staticPages: Record<
     sections: [
       {
         h: "پشتیبانی تلفنی",
-        p: "شنبه تا چهارشنبه از ساعت ۸ تا ۱۶ از طریق ۰۲۱-۰۰۰۰۰۰۰۰.",
+        p: SUPPORT_PHONE
+          ? `شنبه تا چهارشنبه از ساعت ۸ تا ۱۶ از طریق ${SUPPORT_PHONE}.`
+          : "شنبه تا چهارشنبه از ساعت ۸ تا ۱۶ از طریق ثبت تیکت در پنل کاربری.",
       },
       {
         h: "پیام داخلی",
@@ -851,14 +864,14 @@ function AuthPage({ mode }: { mode: "login" | "register" }) {
     }
     try {
       const result = await request<
-        { token: string; user: User } | { mfaRequired: true; message: string }
+        { user: User } | { mfaRequired: true; message: string }
       >(`/auth/${mode}`, { method: "POST", body: JSON.stringify(data) });
       if ("mfaRequired" in result) {
         setMfaRequired(true);
         setError(result.message);
         return;
       }
-      login(result.token, result.user);
+      login(result.user);
       navigate("/panel");
     } catch (err) {
       setError(
@@ -923,6 +936,7 @@ function AuthPage({ mode }: { mode: "login" | "register" }) {
                 label="شماره همراه"
                 dir="ltr"
                 type="tel"
+                autoComplete="username"
                 placeholder="۰۹۱۲۱۲۳۴۵۶۷"
               />
             )}
@@ -931,6 +945,9 @@ function AuthPage({ mode }: { mode: "login" | "register" }) {
               label="رمز عبور"
               type="password"
               dir="ltr"
+              autoComplete={
+                mode === "login" ? "current-password" : "new-password"
+              }
               hint={
                 mode === "register"
                   ? "حداقل ۱۰ کاراکتر شامل حروف بزرگ، کوچک، عدد و نماد"
@@ -994,7 +1011,7 @@ function AuthPage({ mode }: { mode: "login" | "register" }) {
         <aside className="auth-side">
           <img
             className="auth-side-img"
-            src="/house.jpg"
+            src="/hero.jpg"
             alt=""
             width={1200}
             height={800}
@@ -1028,9 +1045,11 @@ function Field({
   value,
   onChange,
   placeholder,
+  autoComplete,
 }: {
   label: string;
   name: string;
+  autoComplete?: string;
   type?: string;
   dir?: "ltr" | "rtl";
   hint?: string;
@@ -1053,6 +1072,7 @@ function Field({
         value={value}
         onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         placeholder={placeholder}
+        autoComplete={autoComplete}
       />
       {hint && <small>{hint}</small>}
     </label>
@@ -1067,8 +1087,13 @@ function Protected({
   capability?: string;
 }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return <Loading />;
   if (!user) return <Navigate to="/login" replace />;
+  // Accounts created by the bootstrap script must replace the temporary
+  // password before anything else is available.
+  if (user.mustChangePassword && location.pathname !== "/panel/profile")
+    return <Navigate to="/panel/profile" replace />;
   if (capability && !can(user.role, capability, user.capabilities))
     return <Navigate to="/panel" replace />;
   return <>{children}</>;
@@ -1121,9 +1146,7 @@ export function PanelLayout({ children }: { children: ReactNode }) {
     ],
   ];
   return (
-    <div
-      className={collapsed ? "panel-shell sidebar-collapsed" : "panel-shell"}
-    >
+    <div className={collapsed ? "panel-shell sidebar-collapsed" : "panel-shell"}>
       <aside
         id="panel-sidebar"
         className={open ? "panel-sidebar open" : "panel-sidebar"}
@@ -1409,14 +1432,7 @@ function ApplicationsPage() {
 }
 
 function NewApplication() {
-  const draftKey = "regbroker_new_application_draft";
-  const savedDraft = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem(draftKey) ?? "{}");
-    } catch {
-      return {};
-    }
-  }, []);
+  const savedDraft = useMemo(() => loadDraft(), []);
   const [services, setServices] = useState<Service[]>([]);
   const [step, setStep] = useState(Number(savedDraft.step) || 1);
   const [serviceId, setServiceId] = useState(
@@ -1448,7 +1464,7 @@ function NewApplication() {
         continue;
       if (element.dataset.controlled === "true") continue;
       if (["radio", "hidden", "checkbox"].includes(element.type)) continue;
-      const value = savedDraft.fields[element.name];
+      const value = (savedDraft.fields as Record<string, unknown>)[element.name];
       if (typeof value === "string") element.value = value;
     }
   }, [services.length, step]);
@@ -1458,14 +1474,11 @@ function NewApplication() {
   }, [serviceId, step]);
   function saveDraft(nextStep = step) {
     if (!formRef.current) return;
-    localStorage.setItem(
-      draftKey,
-      JSON.stringify({
-        step: nextStep,
-        serviceId,
-        fields: Object.fromEntries(new FormData(formRef.current)),
-      }),
-    );
+    persistDraft({
+      step: nextStep,
+      serviceId,
+      fields: Object.fromEntries(new FormData(formRef.current)),
+    });
   }
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1548,7 +1561,7 @@ function NewApplication() {
           },
         }),
       });
-      localStorage.removeItem(draftKey);
+      clearDraft();
       navigate(`/panel/applications/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "ثبت درخواست ناموفق بود.");

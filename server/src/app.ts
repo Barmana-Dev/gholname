@@ -20,6 +20,7 @@ import { config } from "./config.js";
 import { rows } from "./db.js";
 import { normalizeRequestValue } from "./normalize.js";
 import { requestContext } from "./request-context.js";
+import { csrfGuard } from "./security.js";
 import {
   apiRequestLimiter,
   authRequestLimiter,
@@ -42,12 +43,16 @@ app.use((req, res, next) => {
 app.use(
   cors({
     origin: config.CLIENT_ORIGIN,
-    credentials: false,
+    // The session lives in an HttpOnly cookie, so credentialed CORS is limited
+    // to the single configured client origin.
+    credentials: true,
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "X-CSRF-Token"],
   }),
 );
 app.use(globalRequestLimiter);
 app.use(express.json({ limit: "1mb" }));
+app.use(csrfGuard);
 app.use((req, _res, next) => {
   if (req.body) req.body = normalizeRequestValue(req.body);
   if (req.query)

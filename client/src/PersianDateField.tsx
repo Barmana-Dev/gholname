@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { normalizeDigits } from "./digits";
 import { displayPersianDate, parsePersianDate } from "./persian-date";
 
@@ -26,6 +26,7 @@ export function PersianDateField({
   className = "field",
   ariaLabel,
 }: PersianDateFieldProps) {
+  const inputId = useId();
   const initialDisplay = displayPersianDate(defaultValue, dateTime);
   const [displayValue, setDisplayValue] = useState(initialDisplay);
   const [isoValue, setIsoValue] = useState(
@@ -38,6 +39,7 @@ export function PersianDateField({
     <label className={className}>
       {label && <span>{label}</span>}
       <input
+        id={inputId}
         type="text"
         inputMode="numeric"
         value={displayValue}

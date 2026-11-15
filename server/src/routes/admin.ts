@@ -1048,14 +1048,21 @@ adminRouter.patch(
           requirements: z
             .array(z.string().trim().min(2).max(300))
             .min(1)
+            .max(100)
             .optional(),
-          workflow: z.array(z.string().trim().min(2).max(80)).min(1).optional(),
+          workflow: z
+            .array(z.string().trim().min(2).max(80))
+            .min(1)
+            .max(100)
+            .optional(),
           allowedRoles: z
             .array(z.string().trim().min(2).max(40))
             .min(1)
+            .max(30)
             .optional(),
           automaticMessages: z
             .array(z.string().trim().min(2).max(500))
+            .max(50)
             .optional(),
         })
         .refine((v) => Object.keys(v).length > 0)

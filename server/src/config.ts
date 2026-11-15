@@ -50,6 +50,16 @@ const schema = z
     FIELD_ENCRYPTION_KEY: z.string().default(""),
     UPLOAD_DIR: z.string().default("uploads"),
     MAX_FILE_SIZE_MB: z.coerce.number().min(1).max(50).default(10),
+    // Upload hardening. clamd (ClamAV) is mandatory in production.
+    UPLOAD_SCAN_MODE: z.enum(["off", "clamav"]).default("off"),
+    CLAMAV_HOST: z.string().default("127.0.0.1"),
+    CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+    UPLOAD_DAILY_FILE_LIMIT: z.coerce.number().int().min(1).default(50),
+    UPLOAD_DAILY_MB_LIMIT: z.coerce.number().min(1).default(200),
+    UPLOAD_ZIP_MAX_ENTRIES: z.coerce.number().int().min(1).default(200),
+    UPLOAD_ZIP_MAX_UNCOMPRESSED_MB: z.coerce.number().min(1).default(100),
+    UPLOAD_ORPHAN_MIN_AGE_MINUTES: z.coerce.number().int().min(5).default(60),
+    SESSION_TTL_HOURS: z.coerce.number().min(1).max(72).default(8),
     PAYMENT_MODE: z
       .enum(["disabled", "sandbox", "production"])
       .default("disabled"),
@@ -122,6 +132,13 @@ const schema = z
         code: z.ZodIssueCode.custom,
         path: ["NOTIFICATION_WEBHOOK_TOKEN"],
         message: "NOTIFICATION_WEBHOOK_TOKEN is required when notifications are enabled.",
+      });
+    }
+    if (value.UPLOAD_SCAN_MODE !== "clamav") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["UPLOAD_SCAN_MODE"],
+        message: "Production requires UPLOAD_SCAN_MODE=clamav (antivirus scanning of uploads).",
       });
     }
     if (value.DB_USER === "root" || !value.DB_PASSWORD) {

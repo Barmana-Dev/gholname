@@ -3,6 +3,10 @@ set -euo pipefail
 
 : "${BACKUP_ENCRYPTION_PASSWORD:?BACKUP_ENCRYPTION_PASSWORD is required}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-archive.sh
+source "$SCRIPT_DIR/lib-archive.sh"
+
 REG_BACKUP_DIR="${BACKUP_DIR:-backups}"
 REG_DB_HOST="${DB_HOST:-127.0.0.1}"
 REG_DB_PORT="${DB_PORT:-3306}"
@@ -36,11 +40,11 @@ else
 fi
 
 tar -czf "$REG_TEMP_DIR/bundle.tar.gz" -C "$REG_TEMP_DIR" database.sql.gz uploads.tar.gz
-openssl enc -aes-256-cbc -pbkdf2 -salt \
-  -in "$REG_TEMP_DIR/bundle.tar.gz" \
-  -out "$REG_BACKUP_DIR/${REG_CODE}.tar.gz.enc" \
-  -pass env:BACKUP_ENCRYPTION_PASSWORD
 
-shasum -a 256 "$REG_BACKUP_DIR/${REG_CODE}.tar.gz.enc" > "$REG_BACKUP_DIR/${REG_CODE}.sha256"
-chmod 600 "$REG_BACKUP_DIR/${REG_CODE}.tar.gz.enc" "$REG_BACKUP_DIR/${REG_CODE}.sha256"
-printf '%s\n' "$REG_BACKUP_DIR/${REG_CODE}.tar.gz.enc"
+# AES-256-GCM: confidentiality + integrity/authenticity in one pass.
+ARCHIVE="$REG_BACKUP_DIR/${REG_CODE}.tar.gz.enc"
+node "$SCRIPT_DIR/backup-crypto.mjs" encrypt "$REG_TEMP_DIR/bundle.tar.gz" "$ARCHIVE"
+
+printf '%s  %s\n' "$(file_sha256 "$ARCHIVE")" "$(basename "$ARCHIVE")" > "$REG_BACKUP_DIR/${REG_CODE}.sha256"
+chmod 600 "$ARCHIVE" "$REG_BACKUP_DIR/${REG_CODE}.sha256"
+printf '%s\n' "$ARCHIVE"

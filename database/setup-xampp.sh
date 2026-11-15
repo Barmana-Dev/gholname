@@ -51,6 +51,12 @@ if "$MYSQL_BIN" -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -Nse "SELECT 
   exit 1
 fi
 
+if [[ "${NODE_ENV:-}" == "production" ]]; then
+  echo "Refusing to load database/seed.sql with NODE_ENV=production: it creates well-known development accounts." >&2
+  echo "Load schema.sql only, then run: npm run bootstrap:admin -w server" >&2
+  exit 1
+fi
+
 "$MYSQL_BIN" -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" < database/schema.sql
 "$MYSQL_BIN" -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" < database/seed.sql
 MYSQL_BIN="$MYSQL_BIN" DB_HOST="$MYSQL_HOST" DB_PORT="$MYSQL_PORT" DB_USER="$MYSQL_USER" DB_PASSWORD="$MYSQL_PASSWORD" \

@@ -40,7 +40,7 @@
 
 ### پیش‌نیاز
 
-- Node.js 20 یا بالاتر
+- Node.js ‎^20.19.0 یا ‎22.12.0 به بالا (لازمهٔ Vite ۷)
 - XAMPP با Apache و MariaDB/MySQL
 - npm
 
@@ -81,7 +81,11 @@ npm run dev -w client
 
 ## حساب‌های توسعه
 
-رمز همه حساب‌های seed برابر `ChangeMe123!` است و فقط برای توسعه محلی است؛ پیش از هر استقرار باید rotate یا حذف شوند.
+رمز همه حساب‌های seed برابر `ChangeMe123!` است و **فقط برای توسعه محلی** است. در `NODE_ENV=production` اجرای `setup-xampp.sh` مسدود است و API تا زمانی که حسابی با رمز seed فعال باشد بالا نمی‌آید. اولین مدیر production را با `BOOTSTRAP_ADMIN_MOBILE=09… npm run bootstrap:admin -w server` بسازید (رمز تصادفی یک‌بار نمایش داده می‌شود و ورود اول تغییر رمز اجباری دارد).
+
+پس از به‌روزرسانی، `database/migration_010_sessions_and_seed_hardening.sql` را با `npm run db:migrate` اعمال کنید، سپس `npm install` بزنید تا lockfile با `multer@2.3.0` و overrideهای `body-parser`/`proxy-addr` بازتولید شود.
+
+پشتیبان‌گیری اکنون با AES‑256‑GCM (رمزنگاری احرازشده) انجام می‌شود؛ بازیابی ابتدا checksum و صحت رمزنگاری و مسیر فایل‌ها را بررسی می‌کند.
 
 | نقش | موبایل |
 |---|---|

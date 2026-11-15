@@ -10,17 +10,38 @@ export class ApiError extends Error {
   }
 }
 
+const CSRF_COOKIE = "regbroker_csrf";
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * The session itself lives in an HttpOnly cookie that JavaScript cannot read.
+ * Only the double-submit CSRF token is readable; it is echoed in a header on
+ * state-changing requests.
+ */
+function csrfToken(): string | null {
+  const match = document.cookie
+    .split("; ")
+    .find((part) => part.startsWith(`${CSRF_COOKIE}=`));
+  return match ? decodeURIComponent(match.slice(CSRF_COOKIE.length + 1)) : null;
+}
+
+function csrfHeaders(method: string | undefined): Record<string, string> {
+  if (SAFE_METHODS.has((method ?? "GET").toUpperCase())) return {};
+  const token = csrfToken();
+  return token ? { "X-CSRF-Token": token } : {};
+}
+
 export async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const token = localStorage.getItem("regbroker_token");
   const isForm = options.body instanceof FormData;
   const response = await fetch(`${API}${path}`, {
     ...options,
+    credentials: "same-origin",
     headers: {
       ...(isForm ? {} : { "Content-Type": "application/json" }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...csrfHeaders(options.method),
       ...options.headers,
     },
   });
@@ -38,9 +59,8 @@ export async function downloadFile(
   path: string,
   filename: string,
 ): Promise<void> {
-  const token = localStorage.getItem("regbroker_token");
   const response = await fetch(`${API}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "same-origin",
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));

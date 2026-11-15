@@ -59,7 +59,7 @@ mysql_query() {
 mysql_query "SELECT 1" >/dev/null
 
 required_tables=(
-  roles users organization_profile services applications properties
+  roles users user_sessions organization_profile services applications properties
   application_parties documents assignments status_history messages payments
   complaints audit_logs api_request_logs api_logs service_health support_tickets
   ticket_messages expert_reports notifications risk_reviews system_incidents

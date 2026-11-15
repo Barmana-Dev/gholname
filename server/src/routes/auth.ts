@@ -1,7 +1,14 @@
 import bcrypt from "bcrypt";
 import { Router } from "express";
 import { execute, rows, transaction } from "../db.js";
-import { audit, authenticate, signToken } from "../security.js";
+import {
+  audit,
+  authenticate,
+  clearSessionCookies,
+  issueSession,
+  revokeSession,
+  revokeUserSessions,
+} from "../security.js";
 import type { AuthRequest } from "../types.js";
 import { loginSchema, registerSchema } from "../validation.js";
 import { capabilitiesForRole } from "../access.js";
@@ -78,9 +85,9 @@ authRouter.post("/register", async (req: AuthRequest, res, next) => {
       return result.insertId as number;
     });
     req.user = { id: userId, role: "applicant", name: input.fullName };
+    await issueSession(req, res, req.user);
     await audit(req, "auth.register", "user", String(userId));
     res.status(201).json({
-      token: signToken(req.user),
       user: { ...req.user, capabilities: capabilitiesForRole(req.user.role) },
     });
   } catch (error) {
@@ -93,7 +100,7 @@ authRouter.post("/login", async (req: AuthRequest, res, next) => {
     const input = loginSchema.parse(req.body);
     const loginIdentifier = input.mobile ?? input.email ?? "";
     const [user] = await rows<any[]>(
-      `SELECT u.id,u.full_name,u.password_hash,u.status,u.failed_login_count,u.locked_until,u.mobile_verified_at,u.mfa_enabled,u.mfa_secret_encrypted,u.mfa_recovery_codes,r.code role FROM users u JOIN roles r ON r.id=u.role_id WHERE ${input.mobile ? "u.mobile=?" : "u.email=?"} LIMIT 1`,
+      `SELECT u.id,u.full_name,u.password_hash,u.status,u.failed_login_count,u.locked_until,u.mobile_verified_at,u.mfa_enabled,u.mfa_secret_encrypted,u.mfa_recovery_codes,u.must_change_password,r.code role FROM users u JOIN roles r ON r.id=u.role_id WHERE ${input.mobile ? "u.mobile=?" : "u.email=?"} LIMIT 1`,
       [loginIdentifier.toLowerCase()],
     );
     const blocked =
@@ -172,10 +179,14 @@ authRouter.post("/login", async (req: AuthRequest, res, next) => {
       name: user.full_name,
       mfaVerified: Boolean(user.mfa_enabled),
     };
+    await issueSession(req, res, req.user);
     await audit(req, "auth.login", "user", String(user.id));
     res.json({
-      token: signToken(req.user),
-      user: { ...req.user, capabilities: capabilitiesForRole(req.user.role) },
+      user: {
+        ...req.user,
+        capabilities: capabilitiesForRole(req.user.role),
+        mustChangePassword: Boolean(user.must_change_password),
+      },
     });
   } catch (error) {
     next(error);
@@ -185,7 +196,7 @@ authRouter.post("/login", async (req: AuthRequest, res, next) => {
 authRouter.get("/me", authenticate, async (req: AuthRequest, res, next) => {
   try {
     const [user] = await rows<any[]>(
-      "SELECT u.id,u.full_name fullName,u.email,u.mobile,u.mobile_verified_at mobileVerifiedAt,u.national_id nationalId,u.person_type personType,u.organization_name organizationName,u.organization_national_id organizationNationalId,u.mfa_enabled mfaEnabled,r.code role,r.title_fa roleTitle FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?",
+      "SELECT u.id,u.full_name fullName,u.email,u.mobile,u.mobile_verified_at mobileVerifiedAt,u.national_id nationalId,u.person_type personType,u.organization_name organizationName,u.organization_national_id organizationNationalId,u.mfa_enabled mfaEnabled,u.must_change_password mustChangePassword,r.code role,r.title_fa roleTitle FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?",
       [req.user!.id],
     );
     if (!user) return res.status(404).json({ message: "کاربر پیدا نشد." });
@@ -193,6 +204,7 @@ authRouter.get("/me", authenticate, async (req: AuthRequest, res, next) => {
       ...user,
       nationalId: decryptField(user.nationalId),
       organizationNationalId: decryptField(user.organizationNationalId),
+      mustChangePassword: Boolean(user.mustChangePassword),
       capabilities: capabilitiesForRole(user.role),
     });
   } catch (error) {
@@ -205,6 +217,8 @@ authRouter.post(
   authenticate,
   async (req: AuthRequest, res, next) => {
     try {
+      if (req.sessionId) await revokeSession(req.sessionId);
+      clearSessionCookies(res);
       await audit(req, "auth.logout", "user", String(req.user!.id));
       res.json({ ok: true });
     } catch (error) {
@@ -310,9 +324,11 @@ authRouter.post(
       }
       const passwordHash = await bcrypt.hash(input.newPassword, 12);
       await execute(
-        "UPDATE users SET password_hash=?,failed_login_count=0,locked_until=NULL WHERE id=?",
+        "UPDATE users SET password_hash=?,must_change_password=0,failed_login_count=0,locked_until=NULL WHERE id=?",
         [passwordHash, req.user!.id],
       );
+      // A password change signs out every other device/session.
+      await revokeUserSessions(req.user!.id, req.sessionId);
       await audit(req, "auth.password_change", "user", String(req.user!.id));
       res.json({ changed: true });
     } catch (error) {

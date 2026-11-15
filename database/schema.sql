@@ -21,6 +21,7 @@ CREATE TABLE users (
   organization_national_id VARCHAR(255) NULL,
   organization_national_id_hash CHAR(64) NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
+  must_change_password TINYINT(1) NOT NULL DEFAULT 0,
   mfa_enabled TINYINT(1) NOT NULL DEFAULT 0,
   mfa_secret_encrypted TEXT NULL,
   mfa_pending_secret_encrypted TEXT NULL,
@@ -32,6 +33,19 @@ CREATE TABLE users (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_users_role FOREIGN KEY (role_id) REFERENCES roles(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE user_sessions (
+  jti CHAR(36) PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  ip_address VARCHAR(64) NULL,
+  user_agent VARCHAR(255) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME NOT NULL,
+  revoked_at DATETIME NULL,
+  INDEX idx_user_sessions_user (user_id, revoked_at),
+  INDEX idx_user_sessions_expiry (expires_at),
+  CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE organization_profile (

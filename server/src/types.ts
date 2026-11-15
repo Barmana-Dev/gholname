@@ -22,4 +22,6 @@ export interface AuthUser {
 
 export interface AuthRequest extends Request {
   user?: AuthUser;
+  /** jti of the server-side session that authenticated this request. */
+  sessionId?: string;
 }

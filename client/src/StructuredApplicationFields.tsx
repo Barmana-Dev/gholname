@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { normalizeDigits } from "./digits";
+import { loadDraft } from "./drafts";
 
 type RelatedProperty = {
   mainPlate: string;
@@ -21,17 +22,7 @@ type SubdivisionUnit = {
 };
 
 export function StructuredApplicationFields({ code }: { code?: string }) {
-  const savedFields = (() => {
-    try {
-      return (
-        JSON.parse(
-          localStorage.getItem("regbroker_new_application_draft") ?? "{}",
-        ).fields ?? {}
-      );
-    } catch {
-      return {};
-    }
-  })();
+  const savedFields = (loadDraft().fields ?? {}) as Record<string, string>;
   const [properties, setProperties] = useState<RelatedProperty[]>(() => {
     try {
       return JSON.parse(savedFields.relatedPropertiesJson ?? "[]");

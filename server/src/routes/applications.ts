@@ -41,6 +41,14 @@ import {
   restrictedApplicationDetail,
 } from "../observer-data.js";
 import { createTrackingToken } from "../tracking.js";
+import {
+  UploadRejectedError,
+  enforceUploadQuota,
+  inspectUploadContent,
+  scanUpload,
+  uploadConcurrencyGuard,
+  uploadRateLimiter,
+} from "../upload-security.js";
 
 const uploadRoot = path.resolve(config.UPLOAD_DIR);
 fs.mkdirSync(uploadRoot, { recursive: true });
@@ -787,6 +795,8 @@ applicationsRouter.post(
     "compliance",
     "admin",
   ),
+  uploadRateLimiter,
+  uploadConcurrencyGuard,
   upload.single("file"),
   async (req: AuthRequest, res, next) => {
     try {
@@ -797,6 +807,16 @@ applicationsRouter.post(
         return res
           .status(400)
           .json({ message: "محتوای فایل با نوع اعلام‌شده سازگار نیست." });
+      }
+      try {
+        await enforceUploadQuota(req.user!.id, req.file.size);
+        inspectUploadContent(req.file.path, req.file.mimetype);
+        await scanUpload(req.file.path);
+      } catch (error) {
+        fs.unlinkSync(req.file.path);
+        if (error instanceof UploadRejectedError)
+          return res.status(error.status).json({ message: error.message });
+        throw error;
       }
       const documentType = String(req.body.documentType ?? "")
         .trim()

@@ -40,12 +40,166 @@ export function hydrateSessionUser(
   };
 }
 
-export function signToken(user: AuthUser): string {
+export const SESSION_COOKIE = "regbroker_session";
+export const CSRF_COOKIE = "regbroker_csrf";
+export const CSRF_HEADER = "x-csrf-token";
+
+const sessionMaxAgeMs = () => config.SESSION_TTL_HOURS * 60 * 60 * 1000;
+
+export function signToken(user: AuthUser, jti: string): string {
   return jwt.sign(user, config.JWT_SECRET, {
-    expiresIn: "8h",
+    expiresIn: Math.floor(sessionMaxAgeMs() / 1000),
     issuer: "regbroker",
     audience: "regbroker-web",
+    jwtid: jti,
   });
+}
+
+export function parseCookies(header: string | undefined): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  for (const part of (header ?? "").split(";")) {
+    const index = part.indexOf("=");
+    if (index < 0) continue;
+    const name = part.slice(0, index).trim();
+    if (!name || name in cookies) continue;
+    try {
+      cookies[name] = decodeURIComponent(part.slice(index + 1).trim());
+    } catch {
+      /* ignore malformed cookie values */
+    }
+  }
+  return cookies;
+}
+
+function serializeCookie(
+  name: string,
+  value: string,
+  options: { httpOnly: boolean; maxAgeMs: number; path: string },
+): string {
+  const parts = [
+    `${name}=${encodeURIComponent(value)}`,
+    `Path=${options.path}`,
+    `Max-Age=${Math.max(0, Math.floor(options.maxAgeMs / 1000))}`,
+    "SameSite=Strict",
+  ];
+  if (options.httpOnly) parts.push("HttpOnly");
+  if (config.NODE_ENV === "production") parts.push("Secure");
+  return parts.join("; ");
+}
+
+/**
+ * Creates a revocable server-side session and sets the HttpOnly session
+ * cookie plus the readable double-submit CSRF cookie. The JWT is never
+ * returned in a response body, so scripts (and XSS) cannot read it.
+ */
+export async function issueSession(
+  req: AuthRequest,
+  res: Response,
+  user: AuthUser,
+): Promise<void> {
+  const jti = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + sessionMaxAgeMs());
+  await execute(
+    "INSERT INTO user_sessions (jti,user_id,ip_address,user_agent,expires_at) VALUES (?,?,?,?,?)",
+    [
+      jti,
+      user.id,
+      req.ip ?? null,
+      req.get("user-agent")?.slice(0, 255) ?? null,
+      expiresAt,
+    ],
+  );
+  res.append(
+    "Set-Cookie",
+    serializeCookie(SESSION_COOKIE, signToken(user, jti), {
+      httpOnly: true,
+      maxAgeMs: sessionMaxAgeMs(),
+      path: "/api",
+    }),
+  );
+  res.append(
+    "Set-Cookie",
+    serializeCookie(CSRF_COOKIE, crypto.randomBytes(32).toString("hex"), {
+      httpOnly: false,
+      maxAgeMs: sessionMaxAgeMs(),
+      path: "/",
+    }),
+  );
+}
+
+export function clearSessionCookies(res: Response): void {
+  res.append(
+    "Set-Cookie",
+    serializeCookie(SESSION_COOKIE, "", { httpOnly: true, maxAgeMs: 0, path: "/api" }),
+  );
+  res.append(
+    "Set-Cookie",
+    serializeCookie(CSRF_COOKIE, "", { httpOnly: false, maxAgeMs: 0, path: "/" }),
+  );
+}
+
+export async function revokeSession(jti: string): Promise<void> {
+  await execute(
+    "UPDATE user_sessions SET revoked_at=NOW() WHERE jti=? AND revoked_at IS NULL",
+    [jti],
+  );
+}
+
+/** Revokes every session of a user, optionally keeping the current one. */
+export async function revokeUserSessions(
+  userId: number,
+  exceptJti?: string,
+): Promise<void> {
+  await execute(
+    "UPDATE user_sessions SET revoked_at=NOW() WHERE user_id=? AND revoked_at IS NULL AND (? IS NULL OR jti<>?)",
+    [userId, exceptJti ?? null, exceptJti ?? null],
+  );
+}
+
+export async function purgeExpiredSessions(): Promise<void> {
+  await execute(
+    "DELETE FROM user_sessions WHERE expires_at<DATE_SUB(NOW(),INTERVAL 7 DAY)",
+  );
+}
+
+const unsafeMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const csrfExemptPaths = new Set(["/api/auth/login", "/api/auth/register"]);
+
+/**
+ * Origin check for every state-changing request, plus a double-submit CSRF
+ * token for requests authenticated by the session cookie. SameSite=Strict on
+ * the cookies is an additional, independent layer.
+ */
+export function csrfGuard(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!unsafeMethods.has(req.method)) {
+    next();
+    return;
+  }
+  const origin = req.get("origin");
+  if (origin && origin !== new URL(config.CLIENT_ORIGIN).origin) {
+    res.status(403).json({ message: "مبدأ درخواست مجاز نیست." });
+    return;
+  }
+  const cookies = parseCookies(req.headers.cookie);
+  if (!cookies[SESSION_COOKIE] || csrfExemptPaths.has(req.originalUrl.split("?")[0])) {
+    next();
+    return;
+  }
+  const expected = cookies[CSRF_COOKIE] ?? "";
+  const supplied = String(req.get(CSRF_HEADER) ?? "");
+  const equal =
+    expected.length > 0 &&
+    expected.length === supplied.length &&
+    crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(supplied));
+  if (!equal) {
+    res.status(403).json({ message: "توکن امنیتی درخواست نامعتبر است. صفحه را تازه‌سازی کنید." });
+    return;
+  }
+  next();
 }
 
 export async function authenticate(
@@ -53,25 +207,53 @@ export async function authenticate(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
+  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
+  if (!token) {
     res.status(401).json({ message: "برای ادامه وارد سامانه شوید." });
     return;
   }
   try {
-    const verified = jwt.verify(header.slice(7), config.JWT_SECRET, {
+    const verified = jwt.verify(token, config.JWT_SECRET, {
       issuer: "regbroker",
       audience: "regbroker-web",
-    }) as AuthUser;
+    }) as AuthUser & { jti?: string };
+    if (!verified.jti) {
+      res.status(401).json({ message: "نشست شما معتبر نیست یا منقضی شده است." });
+      return;
+    }
     let current;
     try {
       [current] = await rows<any[]>(
-        "SELECT u.status,u.full_name name,r.code role FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=? LIMIT 1",
-        [verified.id],
+        "SELECT u.status,u.full_name name,u.must_change_password mustChange,r.code role,s.revoked_at revokedAt,s.expires_at sessionExpiresAt FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN user_sessions s ON s.jti=? AND s.user_id=u.id WHERE u.id=? LIMIT 1",
+        [verified.jti, verified.id],
       );
     } catch {
       res.status(503).json({
         message: "سرویس احراز هویت موقتاً در دسترس نیست.",
+      });
+      return;
+    }
+    if (
+      !current ||
+      !current.sessionExpiresAt ||
+      current.revokedAt ||
+      new Date(current.sessionExpiresAt) <= new Date()
+    ) {
+      res.status(401).json({ message: "نشست شما معتبر نیست یا منقضی شده است." });
+      return;
+    }
+    const mustChangeAllowed = [
+      "/api/auth/me",
+      "/api/auth/password/change",
+      "/api/auth/logout",
+    ];
+    if (
+      Number(current.mustChange) === 1 &&
+      !mustChangeAllowed.includes(req.originalUrl.split("?")[0])
+    ) {
+      res.status(403).json({
+        message: "پیش از ادامه باید رمز عبور موقت خود را تغییر دهید.",
+        mustChangePassword: true,
       });
       return;
     }
@@ -81,6 +263,7 @@ export async function authenticate(
       return;
     }
     req.user = currentUser;
+    req.sessionId = verified.jti;
     next();
   } catch {
     res.status(401).json({ message: "نشست شما معتبر نیست یا منقضی شده است." });
