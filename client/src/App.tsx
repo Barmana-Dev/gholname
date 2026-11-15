@@ -991,19 +991,29 @@ function AuthPage({ mode }: { mode: "login" | "register" }) {
             )}
           </div>
         </div>
-        <div className="auth-side">
-          <ShieldCheck />
-          <h2>حریم خصوصی شما جدی است</h2>
-          <p>
-            ورودها، مشاهده اسناد و تغییرات پرونده ثبت و بر اساس نقش کنترل
-            می‌شوند.
-          </p>
-          <ul>
-            <li>عدم اشتراک‌گذاری رمز عبور</li>
-            <li>خروج امن پس از پایان کار</li>
-            <li>گزارش فوری فعالیت مشکوک</li>
-          </ul>
-        </div>
+        <aside className="auth-side">
+          <img
+            className="auth-side-img"
+            src="/hero.jpg"
+            alt=""
+            width={1200}
+            height={800}
+            decoding="async"
+          />
+          <div className="auth-side-content">
+            <ShieldCheck />
+            <h2>حریم خصوصی شما جدی است</h2>
+            <p>
+              ورودها، مشاهده اسناد و تغییرات پرونده ثبت و بر اساس نقش کنترل
+              می‌شوند.
+            </p>
+            <ul>
+              <li>عدم اشتراک‌گذاری رمز عبور</li>
+              <li>خروج امن پس از پایان کار</li>
+              <li>گزارش فوری فعالیت مشکوک</li>
+            </ul>
+          </div>
+        </aside>
       </section>
     </PublicLayout>
   );
@@ -1063,10 +1073,36 @@ function Protected({
     return <Navigate to="/panel" replace />;
   return <>{children}</>;
 }
+const SIDEBAR_COLLAPSED_KEY = "gholname.sidebarCollapsed";
+
 export function PanelLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  function toggleSidebar() {
+    // On small screens the sidebar is an off-canvas drawer; on larger
+    // screens the hamburger collapses it into an icon-only rail.
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      setOpen((value) => !value);
+      return;
+    }
+    setCollapsed((value) => {
+      const next = !value;
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        /* storage unavailable: the choice just won't persist */
+      }
+      return next;
+    });
+  }
   const links = [
     ["/panel", Gauge, "نمای کلی", "panel.view"],
     ["/panel/applications", FolderClock, "پرونده‌ها", "applications.read"],
@@ -1085,14 +1121,17 @@ export function PanelLayout({ children }: { children: ReactNode }) {
     ],
   ];
   return (
-    <div className="panel-shell">
-      <aside className={open ? "panel-sidebar open" : "panel-sidebar"}>
+    <div className={collapsed ? "panel-shell sidebar-collapsed" : "panel-shell"}>
+      <aside
+        id="panel-sidebar"
+        className={open ? "panel-sidebar open" : "panel-sidebar"}
+      >
         <Logo light className="panel-brand" />
         <div className="user-brief">
           <span>
             <UserRound />
           </span>
-          <div>
+          <div className="user-brief-text">
             <strong>{user?.name}</strong>
             <small>{roleLabels[user?.role ?? ""] ?? user?.role}</small>
           </div>
@@ -1107,19 +1146,31 @@ export function PanelLayout({ children }: { children: ReactNode }) {
                 end={to === "/panel"}
                 to={to as string}
                 key={to as string}
+                title={label as string}
+                onClick={() => setOpen(false)}
               >
                 <Icon size={20} />
-                {label as string}
+                <span className="nav-label">{label as string}</span>
               </NavLink>
             ))}
         </nav>
-        <button className="logout" onClick={logout}>
-          <LogOut /> خروج امن
+        <button className="logout" onClick={logout} title="خروج امن">
+          <LogOut /> <span className="nav-label">خروج امن</span>
         </button>
       </aside>
       <div className="panel-main">
         <div className="panel-top">
-          <button className="menu-button" onClick={() => setOpen(!open)}>
+          <button
+            type="button"
+            className="menu-button"
+            onClick={toggleSidebar}
+            aria-controls="panel-sidebar"
+            aria-expanded={open || !collapsed}
+            aria-label={
+              open || !collapsed ? "جمع کردن منوی کناری" : "باز کردن منوی کناری"
+            }
+            title={open || !collapsed ? "جمع کردن منو" : "باز کردن منو"}
+          >
             <Menu />
           </button>
           <div>

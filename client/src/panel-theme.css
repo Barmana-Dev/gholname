@@ -785,8 +785,17 @@
 }
 
 @media (max-width: 900px) {
+  /* Off-canvas drawer: the hamburger opens/closes it. */
   .panel-sidebar {
     width: min(292px, 88vw);
+    transform: translateX(105%);
+    transition: transform 0.22s ease;
+    visibility: hidden;
+  }
+
+  .panel-sidebar.open {
+    transform: none;
+    visibility: visible;
   }
 
   .panel-main {
@@ -799,6 +808,72 @@
 
   .panel-top .menu-button {
     display: grid;
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    border: 0;
+    z-index: 25;
+  }
+}
+
+/* Desktop: the hamburger collapses the sidebar into an icon-only rail. */
+.panel-sidebar {
+  overflow-x: hidden;
+  transition: width 0.22s ease, padding 0.22s ease, transform 0.22s ease;
+}
+
+.panel-main {
+  transition: margin-right 0.22s ease;
+}
+
+.panel-top .menu-button {
+  cursor: pointer;
+}
+
+@media (min-width: 901px) {
+  .panel-shell.sidebar-collapsed .panel-sidebar {
+    width: 84px;
+    padding-inline: 12px;
+  }
+
+  .panel-shell.sidebar-collapsed .panel-main {
+    margin-right: 84px;
+  }
+
+  .panel-shell.sidebar-collapsed .panel-brand {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .panel-shell.sidebar-collapsed .panel-brand > span,
+  .panel-shell.sidebar-collapsed .nav-label,
+  .panel-shell.sidebar-collapsed .user-brief-text {
+    display: none;
+  }
+
+  .panel-shell.sidebar-collapsed .user-brief {
+    justify-content: center;
+    margin-inline: 0;
+    padding: 10px 0;
+  }
+
+  .panel-shell.sidebar-collapsed .panel-sidebar nav a,
+  .panel-shell.sidebar-collapsed .panel-sidebar .logout {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .panel-shell.sidebar-collapsed .panel-sidebar nav a:hover,
+  .panel-shell.sidebar-collapsed .panel-sidebar nav a.active {
+    transform: none;
+  }
+
+  .sidebar-overlay {
+    display: none;
   }
 }
 
