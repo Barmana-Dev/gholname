@@ -994,7 +994,7 @@ function AuthPage({ mode }: { mode: "login" | "register" }) {
         <aside className="auth-side">
           <img
             className="auth-side-img"
-            src="/hero.jpg"
+            src="/house.jpg"
             alt=""
             width={1200}
             height={800}
@@ -1121,7 +1121,9 @@ export function PanelLayout({ children }: { children: ReactNode }) {
     ],
   ];
   return (
-    <div className={collapsed ? "panel-shell sidebar-collapsed" : "panel-shell"}>
+    <div
+      className={collapsed ? "panel-shell sidebar-collapsed" : "panel-shell"}
+    >
       <aside
         id="panel-sidebar"
         className={open ? "panel-sidebar open" : "panel-sidebar"}
