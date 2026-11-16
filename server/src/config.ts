@@ -56,10 +56,30 @@ const schema = z
     CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
     UPLOAD_DAILY_FILE_LIMIT: z.coerce.number().int().min(1).default(50),
     UPLOAD_DAILY_MB_LIMIT: z.coerce.number().min(1).default(200),
-    UPLOAD_ZIP_MAX_ENTRIES: z.coerce.number().int().min(1).default(200),
-    UPLOAD_ZIP_MAX_UNCOMPRESSED_MB: z.coerce.number().min(1).default(100),
+    // Content Disarm & Reconstruction (images via sharp, PDF via Ghostscript
+    // pdfimage24, KML via whitelist rebuild). Mandatory in production.
+    CDR_MODE: z.enum(["off", "on"]).default("off"),
+    GS_BIN: z.string().default("gs"),
+    CDR_PDF_DPI: z.coerce.number().int().min(72).max(300).default(150),
+    CDR_MAX_PAGES: z.coerce.number().int().min(1).max(500).default(100),
+    CDR_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(60_000),
     UPLOAD_ORPHAN_MIN_AGE_MINUTES: z.coerce.number().int().min(5).default(60),
     SESSION_TTL_HOURS: z.coerce.number().min(1).max(72).default(8),
+    // Admin accounts must enrol in MFA before using the panel. Defaults to on
+    // in production, off elsewhere (set true/false to override).
+    REQUIRE_ADMIN_MFA: envBoolean.optional(),
+    // "database" shares login/MFA/upload counters across processes/replicas.
+    RATE_LIMIT_STORE: z.enum(["memory", "database"]).default("memory"),
+    // TLS to MySQL. Mandatory in production when DB_HOST is not loopback.
+    DB_SSL: envBoolean.default(false),
+    DB_SSL_CA: z.string().optional(),
+    // Optional external anchor for the audit hash chain (HTTPS endpoint).
+    AUDIT_ANCHOR_URL: z.string().url().optional(),
+    AUDIT_ANCHOR_TOKEN: z.string().optional(),
+    // Token required by GET /api/health/details (otherwise it returns 404).
+    HEALTH_DETAILS_TOKEN: z.string().min(24).optional(),
+    // While this file exists the API answers 503 (used by database/restore.sh).
+    MAINTENANCE_FLAG_FILE: z.string().optional(),
     PAYMENT_MODE: z
       .enum(["disabled", "sandbox", "production"])
       .default("disabled"),
@@ -134,6 +154,35 @@ const schema = z
         message: "NOTIFICATION_WEBHOOK_TOKEN is required when notifications are enabled.",
       });
     }
+    const loopback = ["127.0.0.1", "localhost", "::1"].includes(value.DB_HOST);
+    if (!loopback && !value.DB_SSL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["DB_SSL"],
+        message: "A non-local DB_HOST requires DB_SSL=true (TLS with certificate verification) in production.",
+      });
+    }
+    if (value.RATE_LIMIT_STORE !== "database") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["RATE_LIMIT_STORE"],
+        message: "Production requires RATE_LIMIT_STORE=database so limits are shared between processes.",
+      });
+    }
+    if (value.AUDIT_ANCHOR_URL && new URL(value.AUDIT_ANCHOR_URL).protocol !== "https:") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["AUDIT_ANCHOR_URL"],
+        message: "AUDIT_ANCHOR_URL must use HTTPS in production.",
+      });
+    }
+    if (value.CDR_MODE !== "on") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["CDR_MODE"],
+        message: "Production requires CDR_MODE=on (content disarm & reconstruction of uploads).",
+      });
+    }
     if (value.UPLOAD_SCAN_MODE !== "clamav") {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -150,7 +199,16 @@ const schema = z
     }
   });
 
-export const config = schema.parse(process.env);
+const parsedConfig = schema.parse(process.env);
+
+export const config = {
+  ...parsedConfig,
+  REQUIRE_ADMIN_MFA:
+    parsedConfig.REQUIRE_ADMIN_MFA ?? parsedConfig.NODE_ENV === "production",
+  MAINTENANCE_FLAG_FILE:
+    parsedConfig.MAINTENANCE_FLAG_FILE ??
+    path.resolve(moduleDirectory, "../../.maintenance"),
+};
 
 type RegistrySettings = Pick<
   typeof config,

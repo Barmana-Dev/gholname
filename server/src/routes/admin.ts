@@ -9,7 +9,10 @@ import {
   authorize,
   enforceReadOnlyRole,
   generateCode,
+  revokeUserSessions,
+  verifyStepUp,
 } from "../security.js";
+import { generateInvitePassword } from "../invite-password.js";
 import type { AuthRequest } from "../types.js";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -861,6 +864,8 @@ adminRouter.post(
   },
 );
 
+const privilegedRole = "admin";
+
 adminRouter.post(
   "/users",
   authorize("admin"),
@@ -875,23 +880,26 @@ adminRouter.post(
             .regex(/^09\d{9}$/)
             .optional(),
           role: z.string().trim().min(2).max(40),
-          temporaryPassword: z
-            .string()
-            .min(12)
-            .max(128)
-            .regex(/[A-Z]/)
-            .regex(/[a-z]/)
-            .regex(/\d/)
-            .regex(/[^A-Za-z0-9]/),
+          stepUpOtp: z.string().regex(/^\d{6}$/).optional(),
         })
         .parse(req.body);
       const [role] = await rows<any[]>("SELECT id FROM roles WHERE code=?", [
         input.role,
       ]);
       if (!role) return res.status(400).json({ message: "نقش معتبر نیست." });
-      const passwordHash = await bcrypt.hash(input.temporaryPassword, 12);
+      // Creating another administrator needs a fresh second factor.
+      if (input.role === privilegedRole && !(await verifyStepUp(req, input.stepUpOtp)))
+        return res.status(403).json({
+          message: "برای ایجاد مدیر جدید، کد معتبر احراز هویت دومرحله‌ای شما لازم است.",
+          stepUpRequired: true,
+        });
+      // The server generates a one-time invite password; it is returned once
+      // and the account must replace it (and, for admins, enrol MFA) at first
+      // login. Staff accounts stay `pending` until explicitly activated.
+      const temporaryPassword = generateInvitePassword();
+      const passwordHash = await bcrypt.hash(temporaryPassword, 12);
       const result = await execute(
-        "INSERT INTO users (role_id,full_name,email,mobile,password_hash,status) VALUES (?,?,?,?,?,'pending')",
+        "INSERT INTO users (role_id,full_name,email,mobile,password_hash,must_change_password,status) VALUES (?,?,?,?,?,1,'pending')",
         [
           role.id,
           input.fullName,
@@ -902,8 +910,84 @@ adminRouter.post(
       );
       await audit(req, "user.admin_create", "user", String(result.insertId), {
         role: input.role,
+        mustChangePassword: true,
       });
-      res.status(201).json({ id: result.insertId, status: "pending" });
+      if (input.role === privilegedRole)
+        await execute(
+          "INSERT INTO security_events (user_id,event_type,severity,ip_address,details) VALUES (?,?, 'high',?,?)",
+          [
+            req.user!.id,
+            "admin_account_created",
+            req.ip ?? null,
+            JSON.stringify({ newUserId: result.insertId }),
+          ],
+        );
+      res
+        .status(201)
+        .json({ id: result.insertId, status: "pending", temporaryPassword });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+adminRouter.patch(
+  "/users/:id",
+  authorize("admin"),
+  async (req: AuthRequest, res, next) => {
+    try {
+      const input = z
+        .object({
+          role: z.string().trim().min(2).max(40).optional(),
+          status: z.enum(["active", "suspended", "pending"]).optional(),
+          stepUpOtp: z.string().regex(/^\d{6}$/).optional(),
+        })
+        .refine(
+          (value) => Object.keys(value).some((key) => key !== "stepUpOtp"),
+        )
+        .parse(req.body);
+      const [role] = input.role
+        ? await rows<any[]>("SELECT id FROM roles WHERE code=?", [input.role])
+        : [null];
+      if (input.role && !role)
+        return res.status(400).json({ message: "نقش معتبر نیست." });
+      if (input.role) {
+        const [target] = await rows<any[]>(
+          "SELECT r.code role FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?",
+          [req.params.id],
+        );
+        const touchesAdmin =
+          input.role === privilegedRole || target?.role === privilegedRole;
+        if (
+          touchesAdmin &&
+          target?.role !== input.role &&
+          !(await verifyStepUp(req, input.stepUpOtp))
+        )
+          return res.status(403).json({
+            message:
+              "برای تغییر نقش مدیر، کد معتبر احراز هویت دومرحله‌ای شما لازم است.",
+            stepUpRequired: true,
+          });
+      }
+      const result = await execute(
+        "UPDATE users SET role_id=COALESCE(?,role_id),status=COALESCE(?,status) WHERE id=?",
+        [role?.id ?? null, input.status ?? null, req.params.id],
+      );
+      if (!result.affectedRows)
+        return res.status(404).json({ message: "کاربر پیدا نشد." });
+      // A role change or suspension takes effect immediately.
+      if (input.role || input.status === "suspended")
+        await revokeUserSessions(Number(req.params.id));
+      const { stepUpOtp: _omit, ...auditedInput } = input;
+      void _omit;
+      await audit(
+        req,
+        "user.access_update",
+        "user",
+        String(req.params.id),
+        auditedInput,
+      );
+      res.json({ ok: true });
     } catch (error) {
       next(error);
     }

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { normalizeDigits } from "./digits";
-import { loadDraft } from "./drafts";
 
 type RelatedProperty = {
   mainPlate: string;
@@ -22,7 +21,8 @@ type SubdivisionUnit = {
 };
 
 export function StructuredApplicationFields({ code }: { code?: string }) {
-  const savedFields = (loadDraft().fields ?? {}) as Record<string, string>;
+  // Parties, plates and units are never stored in drafts, so nothing is restored.
+  const savedFields: Record<string, string> = {};
   const [properties, setProperties] = useState<RelatedProperty[]>(() => {
     try {
       return JSON.parse(savedFields.relatedPropertiesJson ?? "[]");

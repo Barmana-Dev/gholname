@@ -21,6 +21,8 @@ export async function sendSms(
       message: withSmsPaymentWarning(message),
     }),
     signal: AbortSignal.timeout(10_000),
+    // Never follow redirects: a redirect could carry the bearer token elsewhere.
+    redirect: "error",
   });
   if (!response.ok)
     throw new Error(`Notification provider returned ${response.status}`);

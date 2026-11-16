@@ -11,7 +11,8 @@
     "lint": "eslint src --max-warnings=0",
     "test": "vitest run src",
     "data:encrypt": "tsx src/scripts/encrypt-existing.ts",
-    "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts"
+    "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts",
+    "audit:verify": "tsx src/scripts/verify-audit-chain.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
@@ -23,7 +24,8 @@
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.12.0",
     "multer": "^2.3.0",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "sharp": "^0.34.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.19.0",

@@ -44,6 +44,7 @@ import { createTrackingToken } from "../tracking.js";
 import {
   UploadRejectedError,
   enforceUploadQuota,
+  disarmStoredUpload,
   inspectUploadContent,
   scanUpload,
   uploadConcurrencyGuard,
@@ -57,7 +58,6 @@ const allowedTypes = new Set([
   "image/jpeg",
   "image/png",
   "image/webp",
-  "application/zip",
   "application/vnd.google-earth.kml+xml",
 ]);
 const upload = multer({
@@ -85,8 +85,6 @@ function hasAllowedSignature(filePath: string, mimeType: string): boolean {
       head.subarray(0, 4).toString() === "RIFF" &&
       head.subarray(8, 12).toString() === "WEBP"
     );
-  if (mimeType === "application/zip")
-    return head.subarray(0, 2).toString() === "PK";
   if (mimeType === "application/vnd.google-earth.kml+xml")
     return ["<?xml", "<kml "].some((marker) =>
       head.toString().trimStart().startsWith(marker),
@@ -808,10 +806,12 @@ applicationsRouter.post(
           .status(400)
           .json({ message: "محتوای فایل با نوع اعلام‌شده سازگار نیست." });
       }
+      let cdr: Awaited<ReturnType<typeof disarmStoredUpload>>;
       try {
         await enforceUploadQuota(req.user!.id, req.file.size);
         inspectUploadContent(req.file.path, req.file.mimetype);
-        await scanUpload(req.file.path);
+        await scanUpload(req.file.path); // antivirus on the ORIGINAL bytes
+        cdr = await disarmStoredUpload(req.file); // then rebuild a clean copy
       } catch (error) {
         fs.unlinkSync(req.file.path);
         if (error instanceof UploadRejectedError)
@@ -891,10 +891,7 @@ applicationsRouter.post(
             .json({ message: "این پرونده به شما ارجاع نشده است." });
         }
       }
-      const hash = crypto
-        .createHash("sha256")
-        .update(fs.readFileSync(req.file.path))
-        .digest("hex");
+      const hash = cdr.sha256;
       const originalName = normalizeOriginalFilename(req.file.originalname);
       const [latest] = await rows<any[]>(
         "SELECT MAX(version) version FROM documents WHERE application_id=? AND document_type=?",
@@ -903,15 +900,16 @@ applicationsRouter.post(
       const version = (latest?.version ?? 0) + 1;
       const result = await transaction(async (connection) => {
         const [created] = await connection.execute<any>(
-          "INSERT INTO documents (application_id,document_type,original_name,storage_name,mime_type,size_bytes,sha256,version,sensitivity,uploaded_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO documents (application_id,document_type,original_name,storage_name,mime_type,size_bytes,sha256,original_sha256,version,sensitivity,uploaded_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
           [
             req.params.id,
             documentType,
             originalName,
             req.file!.filename,
             req.file!.mimetype,
-            req.file!.size,
+            cdr.sizeBytes,
             hash,
+            cdr.originalSha256,
             version,
             sensitivity,
             req.user!.id,
@@ -956,7 +954,7 @@ applicationsRouter.post(
         originalName,
         documentType,
         mimeType: req.file.mimetype,
-        sizeBytes: req.file.size,
+        sizeBytes: cdr.sizeBytes,
       });
     } catch (error) {
       if (req.file && fs.existsSync(req.file.path))
@@ -1082,6 +1080,9 @@ applicationsRouter.get(
           .json({ message: "فایل در فضای ذخیره‌سازی موجود نیست." });
       await audit(req, "document.download", "document", String(document.id));
       res.setHeader("Content-Type", document.mime_type);
+      // Downloaded files must never execute or render as a page.
+      res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+      res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader(
         "Content-Disposition",
         contentDispositionFilename(document.original_name),

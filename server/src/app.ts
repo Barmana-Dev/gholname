@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cors from "cors";
@@ -33,7 +35,62 @@ app.disable("x-powered-by");
 // arbitrary chain because the rate limiter keys requests by the resolved IP.
 app.set("trust proxy", config.TRUST_PROXY ? 1 : false);
 app.use(requestContext);
-app.use(helmet({ crossOriginResourcePolicy: { policy: "same-site" } }));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "same-site" },
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        "default-src": ["'self'"],
+        "script-src": ["'self'"],
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "img-src": ["'self'", "data:", "blob:"],
+        "font-src": ["'self'", "data:"],
+        "connect-src": ["'self'"],
+        "object-src": ["'none'"],
+        "base-uri": ["'none'"],
+        "frame-ancestors": ["'none'"],
+        "form-action": ["'self'"],
+        ...(config.NODE_ENV === "production" ? {} : { "upgrade-insecure-requests": null }),
+      },
+    },
+    referrerPolicy: { policy: "no-referrer" },
+    strictTransportSecurity: { maxAge: 63_072_000, includeSubDomains: true, preload: true },
+    permittedCrossDomainPolicies: { permittedPolicies: "none" },
+  }),
+);
+// Permissions-Policy: nothing in this application needs device APIs.
+app.use((_req, res, next) => {
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+  );
+  next();
+});
+// database/restore.sh creates this file while a restore is running. The check
+// is cached for one second so it costs one stat() per second, not per request.
+let maintenanceCheckedAt = 0;
+let maintenanceActive = false;
+app.use((_req, res, next) => {
+  const now = Date.now();
+  if (now - maintenanceCheckedAt > 1000) {
+    maintenanceCheckedAt = now;
+    maintenanceActive = fs.existsSync(config.MAINTENANCE_FLAG_FILE);
+  }
+  if (maintenanceActive) {
+    res.status(503).set("Retry-After", "120").json({
+      message: "سامانه برای نگه‌داری موقتاً در دسترس نیست. کمی بعد دوباره تلاش کنید.",
+    });
+    return;
+  }
+  next();
+});
+// API responses contain personal data: never let a browser or proxy cache them.
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
+  next();
+});
 // CORS completes successful preflight requests without calling `next()`. Run
 // the same global limiter on OPTIONS first so preflight traffic is covered too.
 app.use((req, res, next) => {
@@ -65,7 +122,26 @@ app.use(
   authRouter,
 );
 app.use("/api", apiRequestLimiter);
+// Public liveness: no environment name, no dependency details.
 app.get("/api/health", async (_req, res) => {
+  try {
+    await rows<any[]>("SELECT 1 AS connected");
+    res.json({ status: "ok" });
+  } catch {
+    res.status(503).json({ status: "degraded" });
+  }
+});
+// Readiness/diagnostics: only for callers holding HEALTH_DETAILS_TOKEN
+// (internal monitoring). Anyone else gets an indistinguishable 404.
+app.get("/api/health/details", async (req, res) => {
+  const expected = config.HEALTH_DETAILS_TOKEN;
+  const supplied = String(req.get("x-health-token") ?? "");
+  const authorized =
+    Boolean(expected) &&
+    supplied.length === expected!.length &&
+    crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected!));
+  if (!authorized)
+    return res.status(404).json({ message: "مسیر درخواستی پیدا نشد." });
   try {
     await rows<any[]>("SELECT 1 AS connected");
     res.json({
@@ -94,8 +170,8 @@ if (config.NODE_ENV === "production") {
     path.dirname(fileURLToPath(import.meta.url)),
     "../../client/dist",
   );
-  app.use(express.static(clientDist));
-  app.get("*", (_req, res) =>
+  app.use(express.static(clientDist, { dotfiles: "ignore", index: false, maxAge: "1h" }));
+  app.get(/^\/(?!api\/).*/, (_req, res) =>
     res.sendFile(path.join(clientDist, "index.html")),
   );
 }

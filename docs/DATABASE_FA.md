@@ -1,12 +1,12 @@
 # مستند پایگاه داده
 
-مرجع ایجاد کامل دیتابیس `database/schema.sql`، داده‌های پایه `database/seed.sql` و ارتقای نصب موجود migrationهای ۰۰۲ تا ۰۰۹ است. migrationهای ۰۰۷ و ۰۰۸ ورود تلفن‌محور، نام‌گذاری امن فایل و شماره همراه حساب‌های داخلی و migration ۰۰۹ چرخه کامل وضعیت پرونده را فعال می‌کنند. نصب تازه schema/seed در `database/setup-xampp.sh` با ثبت baseline و اعتبارسنجی deterministic انجام می‌شود؛ schema canonical شامل ۴۲ جدول و seed شامل ۱۱ نقش و ۹ خدمت است. موتور جداول InnoDB، مجموعه‌نویسه utf8mb4 و collation فارسی است.
+مرجع ایجاد کامل دیتابیس `database/schema.sql`، داده‌های پایه `database/seed-base.sql` (و فقط در توسعه `seed-dev-users.sql`) و ارتقای نصب موجود migrationهای ۰۰۲ تا ۰۱۱ است. migrationهای ۰۰۷ و ۰۰۸ ورود تلفن‌محور، نام‌گذاری امن فایل و شماره همراه حساب‌های داخلی و migration ۰۰۹ چرخه کامل وضعیت پرونده را فعال می‌کنند. نصب تازه schema/seed در `database/setup-xampp.sh` با ثبت baseline و اعتبارسنجی deterministic انجام می‌شود؛ schema canonical شامل ۴۲ جدول و seed شامل ۱۱ نقش و ۹ خدمت است. موتور جداول InnoDB، مجموعه‌نویسه utf8mb4 و collation فارسی است.
 
 ## اجرای مهاجرت
 
 `database/migrate.sh` فایل‌های `migration_*.sql` را با ترتیب lexicographic اجرا می‌کند و برای هر فایل نام، SHA-256، زمان و عامل اجرا را در جدول `schema_migrations` ثبت می‌کند. اجرای دوباره migration همسان بی‌اثر است؛ اگر checksum فایل اجراشده تغییر کرده باشد فرمان متوقف می‌شود تا migration جدید و قابل ردیابی ساخته شود. `npm run db:migrate:status` فقط وضعیت را می‌خواند.
 
-در نصب تازه، پس از ورود دقیق `schema.sql` و `seed.sql`، `npm run db:migrate -- --baseline` فقط metadata مهاجرت‌ها را ثبت می‌کند؛ migrationها روی schema canonical دوباره اجرا نمی‌شوند. baseline روی دیتابیس موجود یا دیتابیسی با کمتر از ۴۲ جدول رد می‌شود. برای دیتابیس قدیمی، ابتدا backup و سپس `npm run db:migrate` را اجرا کنید. `npm run db:validate` وجود ۴۲ جدول canonical به‌علاوه جدول `schema_migrations` (۴۳ جدول در مجموع)، نقش‌ها، خدمات و پوشش کامل migrationها را بررسی می‌کند.
+در نصب تازه، پس از ورود دقیق `schema.sql` و `seed-base.sql`، `npm run db:migrate -- --baseline` فقط metadata مهاجرت‌ها را ثبت می‌کند؛ migrationها روی schema canonical دوباره اجرا نمی‌شوند. baseline روی دیتابیس موجود یا دیتابیسی با کمتر از ۴۲ جدول رد می‌شود. برای دیتابیس قدیمی، ابتدا backup و سپس `npm run db:migrate` را اجرا کنید. `npm run db:validate` وجود ۴۲ جدول canonical به‌علاوه جدول `schema_migrations` (۴۳ جدول در مجموع)، نقش‌ها، خدمات و پوشش کامل migrationها را بررسی می‌کند.
 
 کلیدهای خارجی مالکیت پرونده، اسناد، پیوست شکایت، طرف‌ها، ارجاع‌ها، تأیید دوم و سوابق را حفظ می‌کنند. ایندکس‌های مسیرهای پرتکرار بر متقاضی/وضعیت، خدمت/وضعیت/پلاک، سند/پرونده، blind index هویت، OTP، صف و رخدادهای عملیاتی قرار دارند. داده حساس متنی با AES-256-GCM ذخیره می‌شود؛ JSON فقط برای داده انعطاف‌پذیر رمز‌شده یا پیکربندی غیرحساس استفاده می‌شود.
 

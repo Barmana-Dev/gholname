@@ -1,5 +1,55 @@
 import { z } from "zod";
 
+const COMMON_PASSWORDS = new Set(
+  [
+    "password1!",
+    "password123!",
+    "qwerty123!",
+    "qwertyuiop1!",
+    "admin123456!",
+    "changeme123!",
+    "changeme123",
+    "welcome123!",
+    "iloveyou123!",
+    "letmein123!",
+    "p@ssw0rd123",
+    "p@ssword123",
+    "password@123",
+    "admin@123456",
+    "12345678aA!",
+    "1q2w3e4r5t!",
+    "abc123456!",
+    "passw0rd!2024",
+    "iran1234567!",
+    "tehran12345!",
+  ].map((value) => value.toLowerCase()),
+);
+
+/**
+ * bcrypt only uses the first 72 BYTES of a password and silently ignores the
+ * rest, so longer inputs (easy to reach with Persian characters, 2 bytes each)
+ * are rejected instead of being truncated.
+ */
+export function strongPassword(minimum: number) {
+  return z
+    .string()
+    .min(minimum)
+    .max(128)
+    .regex(/[A-Z]/)
+    .regex(/[a-z]/)
+    .regex(/\d/)
+    .regex(/[^A-Za-z0-9]/)
+    .refine((value) => Buffer.byteLength(value, "utf8") <= 72, {
+      message: "رمز عبور نباید بیش از ۷۲ بایت باشد.",
+    })
+    .refine((value) => !COMMON_PASSWORDS.has(value.toLowerCase()), {
+      message: "این رمز عبور بسیار رایج است.",
+    })
+    .refine((value) => !/(.)\1{5,}/.test(value), {
+      message: "رمز عبور نباید شامل تکرار پشت‌سرهم یک نویسه باشد.",
+    });
+}
+
 export const iranianNationalId = z
   .string()
   .regex(/^\d{10}$/)
@@ -22,14 +72,7 @@ export const registerSchema = z
     // Registration is phone-first. Email remains optional only for existing
     // back-office integrations; the public form does not need to collect it.
     email: z.string().email().max(190).optional(),
-    password: z
-      .string()
-      .min(10)
-      .max(128)
-      .regex(/[A-Z]/)
-      .regex(/[a-z]/)
-      .regex(/\d/)
-      .regex(/[^A-Za-z0-9]/),
+    password: strongPassword(10),
     personType: z.enum(["individual", "legal"]).default("individual"),
     organizationName: z.string().trim().min(3).max(190).optional(),
     organizationNationalId: z
@@ -53,32 +96,34 @@ export const registerSchema = z
     }
   });
 
-export const loginSchema = z.object({
-  mobile: z
-    .string()
-    .regex(/^09\d{9}$/)
-    .optional(),
-  // Keep legacy staff login working while public login uses mobile only.
-  email: z.string().email().optional(),
-  password: z.string().min(1).max(128),
-  otp: z.preprocess(
-    (value) => (value === "" ? undefined : value),
-    z
+export const loginSchema = z
+  .object({
+    mobile: z
       .string()
-      .regex(/^\d{6}$/)
+      .regex(/^09\d{9}$/)
       .optional(),
-  ),
-  recoveryCode: z.preprocess(
-    (value) => (value === "" ? undefined : value),
-    z
-      .string()
-      .regex(/^[A-Fa-f0-9]{10}$/)
-      .optional(),
-  ),
-}).refine((value) => Boolean(value.mobile || value.email), {
-  message: "شماره همراه الزامی است.",
-  path: ["mobile"],
-});
+    // Keep legacy staff login working while public login uses mobile only.
+    email: z.string().email().optional(),
+    password: z.string().min(1).max(128),
+    otp: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z
+        .string()
+        .regex(/^\d{6}$/)
+        .optional(),
+    ),
+    recoveryCode: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z
+        .string()
+        .regex(/^[A-Fa-f0-9]{10}$/)
+        .optional(),
+    ),
+  })
+  .refine((value) => Boolean(value.mobile || value.email), {
+    message: "شماره همراه الزامی است.",
+    path: ["mobile"],
+  });
 
 export const applicationSchema = z.object({
   serviceId: z.number().int().positive(),

@@ -96,6 +96,7 @@ export async function processIntegrationJobs(): Promise<void> {
             },
             body: payloadText,
             signal: AbortSignal.timeout(15_000),
+            redirect: "error", // never forward the bearer token via a redirect
           },
         );
         responseStatus = response.status;

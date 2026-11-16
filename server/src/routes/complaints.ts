@@ -27,6 +27,15 @@ import {
 import { pagination, paginationHeaders } from "../pagination.js";
 import { canAccessComplaint, canUpdateComplaint } from "../complaint-access.js";
 import { userCanAccessApplication } from "../application-access.js";
+import {
+  UploadRejectedError,
+  enforceUploadQuota,
+  disarmStoredUpload,
+  inspectUploadContent,
+  scanUpload,
+  uploadConcurrencyGuard,
+  uploadRateLimiter,
+} from "../upload-security.js";
 
 const complaintUploadRoot = path.resolve(config.UPLOAD_DIR, "complaints");
 fs.mkdirSync(complaintUploadRoot, { recursive: true });
@@ -228,6 +237,8 @@ complaintsRouter.post(
     "operations_manager",
     "admin",
   ),
+  uploadRateLimiter,
+  uploadConcurrencyGuard,
   complaintUpload.single("file"),
   async (req: AuthRequest, res, next) => {
     try {
@@ -260,20 +271,30 @@ complaintsRouter.post(
           .status(409)
           .json({ message: "شکایت بسته است یا محتوای فایل معتبر نیست." });
       }
-      const hash = crypto
-        .createHash("sha256")
-        .update(fs.readFileSync(req.file.path))
-        .digest("hex");
+      let cdr: Awaited<ReturnType<typeof disarmStoredUpload>>;
+      try {
+        await enforceUploadQuota(req.user!.id, req.file.size);
+        inspectUploadContent(req.file.path, req.file.mimetype);
+        await scanUpload(req.file.path); // ClamAV, mandatory in production
+        cdr = await disarmStoredUpload(req.file); // rebuild a clean copy
+      } catch (error) {
+        fs.unlinkSync(req.file.path);
+        if (error instanceof UploadRejectedError)
+          return res.status(error.status).json({ message: error.message });
+        throw error;
+      }
+      const hash = cdr.sha256;
       const originalName = normalizeOriginalFilename(req.file.originalname);
       const result = await execute(
-        "INSERT INTO complaint_attachments (complaint_id,original_name,storage_name,mime_type,size_bytes,sha256,uploaded_by) VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO complaint_attachments (complaint_id,original_name,storage_name,mime_type,size_bytes,sha256,original_sha256,uploaded_by) VALUES (?,?,?,?,?,?,?,?)",
         [
           req.params.id,
           originalName,
           req.file.filename,
           req.file.mimetype,
-          req.file.size,
+          cdr.sizeBytes,
           hash,
+          cdr.originalSha256,
           req.user!.id,
         ],
       );
@@ -282,13 +303,13 @@ complaintsRouter.post(
         "complaint.attachment_upload",
         "complaint_attachment",
         String(result.insertId),
-        { complaintId: req.params.id, hash },
+        { complaintId: req.params.id, hash, originalSha256: cdr.originalSha256 },
       );
       res.status(201).json({
         id: result.insertId,
         originalName,
         mimeType: req.file.mimetype,
-        sizeBytes: req.file.size,
+        sizeBytes: cdr.sizeBytes,
       });
     } catch (error) {
       if (req.file && fs.existsSync(req.file.path))
@@ -342,6 +363,9 @@ complaintsRouter.get(
         String(attachment.id),
       );
       res.setHeader("Content-Type", attachment.mime_type);
+      // Downloaded files must never execute or render as a page.
+      res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+      res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader(
         "Content-Disposition",
         contentDispositionFilename(attachment.original_name),

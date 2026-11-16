@@ -10,7 +10,7 @@ Usage: database/migrate.sh [--status|--baseline]
 
 Apply pending migration_*.sql files in lexical order and record their SHA-256
 checksum in regbroker.schema_migrations. Use --baseline only immediately after
-loading the canonical schema.sql and seed.sql into a fresh database.
+loading the canonical schema.sql and seed-base.sql (plus seed-dev-users.sql in development) into a fresh database.
 USAGE
 }
 

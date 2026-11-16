@@ -1,7 +1,7 @@
 import { config } from "./config.js";
 import { rows } from "./db.js";
 
-/** bcrypt hash of the shared development seed password in database/seed.sql. */
+/** bcrypt hash of the shared development seed password in database/seed-dev-users.sql. */
 export const SEED_PASSWORD_HASH =
   "$2b$12$XsMWKqcR3Q9W1YVCzJdyeOoPDMWAJyTf3sGGnjCxtlQeWVmrwjKX6";
 

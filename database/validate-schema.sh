@@ -68,7 +68,7 @@ required_tables=(
   support_interactions complaint_attachments integration_jobs security_events
   backup_runs review_approvals staff_control_attestations periodic_case_reviews
   access_review_campaigns access_review_items internal_control_audits control_evidence
-  schema_migrations
+  rate_limit_hits audit_anchors schema_migrations
 )
 
 missing=0

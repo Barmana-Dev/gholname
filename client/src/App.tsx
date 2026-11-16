@@ -1,6 +1,7 @@
 import {
   clearClientSessionData,
   clearDraft,
+  clearLegacySessionKeys,
   loadDraft,
   saveDraft as persistDraft,
 } from "./drafts";
@@ -203,6 +204,7 @@ interface AuthContextValue {
 }
 interface MeResponse {
   mustChangePassword?: boolean;
+  mfaSetupRequired?: boolean;
   id: number;
   fullName: string;
   role: string;
@@ -216,7 +218,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    clearClientSessionData(); // drop tokens left by older versions
+    clearLegacySessionKeys(); // drop tokens left by older versions (keeps drafts)
     request<MeResponse>("/auth/me")
       .then((me) =>
         setUser({
@@ -225,6 +227,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
           role: me.role,
           capabilities: me.capabilities,
           mustChangePassword: me.mustChangePassword,
+          mfaSetupRequired: me.mfaSetupRequired,
         }),
       )
       .catch(() => setUser(null))
@@ -1092,7 +1095,10 @@ function Protected({
   if (!user) return <Navigate to="/login" replace />;
   // Accounts created by the bootstrap script must replace the temporary
   // password before anything else is available.
-  if (user.mustChangePassword && location.pathname !== "/panel/profile")
+  if (
+    (user.mustChangePassword || user.mfaSetupRequired) &&
+    location.pathname !== "/panel/profile"
+  )
     return <Navigate to="/panel/profile" replace />;
   if (capability && !can(user.role, capability, user.capabilities))
     return <Navigate to="/panel" replace />;
@@ -2195,7 +2201,7 @@ function ApplicationDetail() {
                 <span>{file?.name ?? "انتخاب فایل مجاز"}</span>
                 <input
                   type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,.webp,.zip,.kml"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp,.kml"
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 />
               </label>
@@ -2666,8 +2672,10 @@ function ProfilePage() {
         method: "POST",
         body: JSON.stringify(values),
       });
-      setMessage("احراز هویت دومرحله‌ای غیرفعال شد.");
-      await load();
+      // The server revoked every session when MFA was switched off.
+      clearClientSessionData();
+      window.location.assign("/login");
+      return;
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "غیرفعال‌سازی ناموفق بود.",
@@ -2741,6 +2749,14 @@ function ProfilePage() {
                 }
               />
             )}
+            <Field
+              name="currentPassword"
+              label="رمز فعلی (فقط هنگام تغییر شماره همراه یا ایمیل)"
+              type="password"
+              dir="ltr"
+              required={false}
+              autoComplete="current-password"
+            />
             <button className="button primary">ذخیره اطلاعات</button>
           </form>
           <section className="panel-card mfa-card">

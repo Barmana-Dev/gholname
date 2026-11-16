@@ -5,6 +5,8 @@ import { processIntegrationJobs } from "./integration-queue.js";
 import { recordHealthSnapshot } from "./monitoring.js";
 import { purgeExpiredSessions } from "./security.js";
 import { cleanupOrphanUploads } from "./upload-security.js";
+import { anchorAuditChain } from "./audit-anchor.js";
+import { purgeExpiredRateLimits } from "./shared-limits.js";
 import { assertNoDefaultSeedCredentials } from "./seed-guard.js";
 
 async function start() {
@@ -33,10 +35,22 @@ async function start() {
       void purgeExpiredSessions().catch((error) =>
         console.error("Session cleanup failed", error),
       );
+      void purgeExpiredRateLimits().catch((error) =>
+        console.error("Rate-limit cleanup failed", error),
+      );
       void cleanupOrphanUploads().catch((error) =>
         console.error("Orphan upload cleanup failed", error),
       );
     };
+    const anchorTimer = setInterval(() => {
+      void anchorAuditChain().catch((error) =>
+        console.error("Audit anchoring failed", error),
+      );
+    }, 60 * 60 * 1000);
+    anchorTimer.unref();
+    void anchorAuditChain().catch((error) =>
+      console.error("Audit anchoring failed", error),
+    );
     housekeeping();
     setInterval(housekeeping, 6 * 60 * 60 * 1000).unref();
     void recordHealthSnapshot().catch((error) =>
@@ -48,7 +62,7 @@ async function start() {
       process.exit(1);
     }
     console.error(
-      "Database connection failed. Start MySQL in XAMPP and import database/schema.sql and database/seed.sql.",
+      "Database connection failed. Start MySQL in XAMPP and import database/schema.sql and database/seed-base.sql (development: also seed-dev-users.sql).",
       error,
     );
     process.exit(1);

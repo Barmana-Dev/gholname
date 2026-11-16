@@ -1,5 +1,6 @@
 export interface User {
   mustChangePassword?: boolean;
+  mfaSetupRequired?: boolean;
   id: number;
   name: string;
   role: string;

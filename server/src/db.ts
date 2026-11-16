@@ -3,6 +3,7 @@ import mysql, {
   type ResultSetHeader,
   type RowDataPacket,
 } from "mysql2/promise";
+import fs from "node:fs";
 import { config } from "./config.js";
 
 export const db = mysql.createPool({
@@ -20,6 +21,20 @@ export const db = mysql.createPool({
   idleTimeout: 60_000,
   enableKeepAlive: true,
   decimalNumbers: true,
+  // TLS with certificate and host-name verification (never rejectUnauthorized:false).
+  ssl: config.DB_SSL
+    ? {
+        rejectUnauthorized: true,
+        minVersion: "TLSv1.2",
+        ...(config.DB_SSL_CA
+          ? {
+              ca: fs.existsSync(config.DB_SSL_CA)
+                ? fs.readFileSync(config.DB_SSL_CA, "utf8")
+                : config.DB_SSL_CA,
+            }
+          : {}),
+      }
+    : undefined,
 });
 
 export async function rows<T extends RowDataPacket[]>(

@@ -23,8 +23,8 @@ function deriveKey(password, salt) {
 
 function readPassword() {
   const password = process.env.BACKUP_ENCRYPTION_PASSWORD ?? "";
-  if (password.length < 16) {
-    console.error("BACKUP_ENCRYPTION_PASSWORD must be at least 16 characters.");
+  if (password.length < 16 || /^(replace|change|example|password|secret|test)/i.test(password)) {
+    console.error("BACKUP_ENCRYPTION_PASSWORD must be a unique random value of at least 16 characters (not a placeholder).");
     process.exit(2);
   }
   return password;

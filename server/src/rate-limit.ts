@@ -1,14 +1,16 @@
-import rateLimit, { type Options } from "express-rate-limit";
+import rateLimit, { type Options, type Store } from "express-rate-limit";
+import { createCounterStore } from "./shared-limits.js";
 
 export const RATE_LIMIT_MESSAGE =
   "تعداد درخواست‌ها بیش از حد مجاز است. لطفاً کمی بعد دوباره تلاش کنید.";
 
-type LimiterConfig = Pick<Options, "windowMs" | "limit">;
+type LimiterConfig = Pick<Options, "windowMs" | "limit"> & { store?: Store };
 
-export function createRateLimiter({ windowMs, limit }: LimiterConfig) {
+export function createRateLimiter({ windowMs, limit, store }: LimiterConfig) {
   return rateLimit({
     windowMs,
     limit,
+    ...(store ? { store } : {}),
     standardHeaders: true,
     legacyHeaders: false,
     // With the default direct-connection mode, ignore client-supplied
@@ -40,4 +42,6 @@ export const apiRequestLimiter = createRateLimiter({
 export const authRequestLimiter = createRateLimiter({
   windowMs: 15 * 60_000,
   limit: 40,
+  // Shared store: counters are common to all processes/replicas in production.
+  store: createCounterStore("auth-ip", 15 * 60_000),
 });

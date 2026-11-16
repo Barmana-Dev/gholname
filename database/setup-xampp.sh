@@ -15,6 +15,9 @@ MYSQL_HOST="127.0.0.1"
 MYSQL_PORT="3306"
 MYSQL_USER="root"
 MYSQL_PASSWORD=""
+# NODE_ENV: shell variable wins, then .env, default development.
+ENV_NODE_ENV="${NODE_ENV-}"
+TARGET_ENV="development"
 
 if [[ -f .env ]]; then
   while IFS='=' read -r key value; do
@@ -24,9 +27,11 @@ if [[ -f .env ]]; then
       DB_USER) MYSQL_USER="$value" ;;
       DB_PASSWORD) MYSQL_PASSWORD="$value" ;;
       MYSQL_BIN) MYSQL_BIN="$value" ;;
+      NODE_ENV) TARGET_ENV="$(printf '%s' "$value" | sed -e 's/[[:space:]]*#.*$//' -e "s/^[\"']//" -e "s/[\"']\$//" -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" ;;
     esac
-  done < <(grep -E '^(DB_(HOST|PORT|USER|PASSWORD)|MYSQL_BIN)=' .env)
+  done < <(grep -E '^(DB_(HOST|PORT|USER|PASSWORD)|MYSQL_BIN|NODE_ENV)=' .env)
 fi
+[[ -n "$ENV_NODE_ENV" ]] && TARGET_ENV="$ENV_NODE_ENV"
 
 [[ -n "$ENV_DB_HOST" ]] && MYSQL_HOST="$ENV_DB_HOST"
 [[ -n "$ENV_DB_PORT" ]] && MYSQL_PORT="$ENV_DB_PORT"
@@ -51,14 +56,15 @@ if "$MYSQL_BIN" -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" -Nse "SELECT 
   exit 1
 fi
 
-if [[ "${NODE_ENV:-}" == "production" ]]; then
-  echo "Refusing to load database/seed.sql with NODE_ENV=production: it creates well-known development accounts." >&2
-  echo "Load schema.sql only, then run: npm run bootstrap:admin -w server" >&2
-  exit 1
-fi
-
 "$MYSQL_BIN" -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" < database/schema.sql
-"$MYSQL_BIN" -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" < database/seed.sql
+"$MYSQL_BIN" -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" < database/seed-base.sql
+# Development accounts with a well-known password are loaded ONLY outside
+# production; in production this file is never read.
+if [[ "$TARGET_ENV" == "production" ]]; then
+  echo "NODE_ENV=production: skipping database/seed-dev-users.sql. Create the first admin with: npm run bootstrap:admin -w server"
+else
+  "$MYSQL_BIN" -h "$MYSQL_HOST" -P "$MYSQL_PORT" -u "$MYSQL_USER" < database/seed-dev-users.sql
+fi
 MYSQL_BIN="$MYSQL_BIN" DB_HOST="$MYSQL_HOST" DB_PORT="$MYSQL_PORT" DB_USER="$MYSQL_USER" DB_PASSWORD="$MYSQL_PASSWORD" \
   bash database/migrate.sh --baseline
 MYSQL_BIN="$MYSQL_BIN" DB_HOST="$MYSQL_HOST" DB_PORT="$MYSQL_PORT" DB_USER="$MYSQL_USER" DB_PASSWORD="$MYSQL_PASSWORD" \

@@ -8,9 +8,10 @@ import {
   issueSession,
   revokeSession,
   revokeUserSessions,
+  verifyAndConsumeTotp,
 } from "../security.js";
 import type { AuthRequest } from "../types.js";
-import { loginSchema, registerSchema } from "../validation.js";
+import { loginSchema, registerSchema, strongPassword } from "../validation.js";
 import { capabilitiesForRole } from "../access.js";
 import {
   blindIndex,
@@ -18,14 +19,35 @@ import {
   decryptField,
   encryptField,
   generateTotpSecret,
-  verifyTotp,
 } from "../crypto.js";
 import { z } from "zod";
 import crypto from "node:crypto";
 import { sendSms } from "../notifications.js";
 import { config } from "../config.js";
+import { consumeLimit, createCounterStore } from "../shared-limits.js";
 
 export const authRouter = Router();
+
+// Per-account budget in addition to the per-IP limiter, so credential stuffing
+// spread over many addresses still hits a ceiling for each identifier.
+const loginIdentifierStore = createCounterStore("login-id", 15 * 60_000);
+const LOGIN_ATTEMPTS_PER_IDENTIFIER = 10;
+
+let dummyPasswordHash: Promise<string> | undefined;
+/** Compared against when the account does not exist, to keep timing uniform. */
+const getDummyPasswordHash = () =>
+  (dummyPasswordHash ??= bcrypt.hash(crypto.randomBytes(24).toString("hex"), 12));
+
+function maskIdentifier(value: string): string {
+  if (value.includes("@")) {
+    const [name, domain] = value.split("@");
+    return `${name.slice(0, 2)}***@${domain}`;
+  }
+  return value.length > 4 ? `${value.slice(0, 4)}***${value.slice(-2)}` : "***";
+}
+
+const failedAttemptSql =
+  "UPDATE users SET failed_login_count=failed_login_count+1, locked_until=IF(failed_login_count>=4,DATE_ADD(NOW(),INTERVAL 15 MINUTE),locked_until) WHERE id=?";
 
 authRouter.post("/register", async (req: AuthRequest, res, next) => {
   try {
@@ -99,23 +121,31 @@ authRouter.post("/login", async (req: AuthRequest, res, next) => {
   try {
     const input = loginSchema.parse(req.body);
     const loginIdentifier = input.mobile ?? input.email ?? "";
+    const identifierKey = blindIndex(loginIdentifier.toLowerCase());
+    if (
+      !(await consumeLimit(
+        loginIdentifierStore,
+        identifierKey,
+        LOGIN_ATTEMPTS_PER_IDENTIFIER,
+      ))
+    )
+      return res.status(429).json({
+        message: "تلاش‌های ورود برای این حساب زیاد بوده است. کمی بعد دوباره تلاش کنید.",
+      });
     const [user] = await rows<any[]>(
       `SELECT u.id,u.full_name,u.password_hash,u.status,u.failed_login_count,u.locked_until,u.mobile_verified_at,u.mfa_enabled,u.mfa_secret_encrypted,u.mfa_recovery_codes,u.must_change_password,r.code role FROM users u JOIN roles r ON r.id=u.role_id WHERE ${input.mobile ? "u.mobile=?" : "u.email=?"} LIMIT 1`,
       [loginIdentifier.toLowerCase()],
     );
     const blocked =
       user?.locked_until && new Date(user.locked_until) > new Date();
-    if (
-      !user ||
-      user.status !== "active" ||
-      blocked ||
-      !(await bcrypt.compare(input.password, user.password_hash))
-    ) {
-      if (user && !blocked)
-        await execute(
-          "UPDATE users SET failed_login_count=failed_login_count+1, locked_until=IF(failed_login_count>=4,DATE_ADD(NOW(),INTERVAL 15 MINUTE),locked_until) WHERE id=?",
-          [user.id],
-        );
+    // Always run bcrypt (against a dummy hash for unknown accounts) so the
+    // response time does not reveal whether the account exists.
+    const passwordMatches = await bcrypt.compare(
+      input.password,
+      user?.password_hash ?? (await getDummyPasswordHash()),
+    );
+    if (!user || user.status !== "active" || blocked || !passwordMatches) {
+      if (user && !blocked) await execute(failedAttemptSql, [user.id]);
       req.user = user
         ? { id: user.id, role: user.role, name: user.full_name }
         : undefined;
@@ -125,7 +155,9 @@ authRouter.post("/login", async (req: AuthRequest, res, next) => {
         "user",
         user ? String(user.id) : undefined,
         {
-          identifier: loginIdentifier.toLowerCase(),
+          // HMAC + masked hint instead of the full identifier (less PII kept).
+          identifierHash: identifierKey,
+          identifierHint: maskIdentifier(loginIdentifier.toLowerCase()),
           blocked: Boolean(blocked),
         },
       );
@@ -149,9 +181,15 @@ authRouter.post("/login", async (req: AuthRequest, res, next) => {
         ? recoveryHashes.indexOf(blindIndex(input.recoveryCode))
         : -1;
       const verified =
-        Boolean(secret && input.otp && verifyTotp(secret, input.otp)) ||
-        recoveryIndex >= 0;
+        Boolean(
+          secret &&
+            input.otp &&
+            (await verifyAndConsumeTotp(user.id, secret, input.otp)),
+        ) || recoveryIndex >= 0;
       if (!verified) {
+        // A wrong second factor counts towards the same account lock-out.
+        if (input.otp || input.recoveryCode)
+          await execute(failedAttemptSql, [user.id]);
         await audit(req, "auth.mfa_failed", "user", String(user.id));
         return res.status(input.otp || input.recoveryCode ? 401 : 202).json({
           mfaRequired: true,
@@ -186,6 +224,10 @@ authRouter.post("/login", async (req: AuthRequest, res, next) => {
         ...req.user,
         capabilities: capabilitiesForRole(req.user.role),
         mustChangePassword: Boolean(user.must_change_password),
+        mfaSetupRequired:
+          config.REQUIRE_ADMIN_MFA &&
+          user.role === "admin" &&
+          !user.mfa_enabled,
       },
     });
   } catch (error) {
@@ -205,6 +247,10 @@ authRouter.get("/me", authenticate, async (req: AuthRequest, res, next) => {
       nationalId: decryptField(user.nationalId),
       organizationNationalId: decryptField(user.organizationNationalId),
       mustChangePassword: Boolean(user.mustChangePassword),
+      mfaSetupRequired:
+        config.REQUIRE_ADMIN_MFA &&
+        user.role === "admin" &&
+        !user.mfaEnabled,
       capabilities: capabilitiesForRole(user.role),
     });
   } catch (error) {
@@ -244,9 +290,37 @@ authRouter.patch("/me", authenticate, async (req: AuthRequest, res, next) => {
           .max(190)
           .nullable()
           .optional(),
+        currentPassword: z.string().max(128).optional(),
       })
-      .refine((value) => Object.keys(value).length > 0)
+      .refine(
+        (value) =>
+          Object.keys(value).some(
+            (key) => key !== "currentPassword",
+          ),
+      )
       .parse(req.body);
+    const [existing] = await rows<any[]>(
+      "SELECT email,mobile,password_hash FROM users WHERE id=?",
+      [req.user!.id],
+    );
+    const identifierChanged =
+      Boolean(
+        input.email && input.email.toLowerCase() !== (existing?.email ?? "").toLowerCase(),
+      ) || Boolean(input.mobile && input.mobile !== existing?.mobile);
+    if (identifierChanged) {
+      // Changing the sign-in identifier is an account-takeover primitive:
+      // require the current password and force re-verification.
+      if (
+        !input.currentPassword ||
+        !existing ||
+        !(await bcrypt.compare(input.currentPassword, existing.password_hash))
+      ) {
+        await audit(req, "profile.identifier_change_denied", "user", String(req.user!.id));
+        return res.status(401).json({
+          message: "برای تغییر ایمیل یا شماره همراه، رمز فعلی را درست وارد کنید.",
+        });
+      }
+    }
     if (input.email || input.mobile) {
       const duplicate = await rows<any[]>(
         "SELECT id FROM users WHERE id<>? AND (email=COALESCE(?,email) OR mobile=COALESCE(?,mobile)) LIMIT 1",
@@ -262,18 +336,21 @@ authRouter.patch("/me", authenticate, async (req: AuthRequest, res, next) => {
           .json({ message: "ایمیل یا موبایل قبلاً ثبت شده است." });
     }
     await execute(
-      "UPDATE users SET full_name=COALESCE(?,full_name),email=COALESCE(?,email),mobile=COALESCE(?,mobile),organization_name=CASE WHEN ? THEN ? ELSE organization_name END WHERE id=?",
+      "UPDATE users SET full_name=COALESCE(?,full_name),email=COALESCE(?,email),mobile_verified_at=IF(? IS NOT NULL AND (mobile IS NULL OR mobile<>?),NULL,mobile_verified_at),mobile=COALESCE(?,mobile),organization_name=CASE WHEN ? THEN ? ELSE organization_name END WHERE id=?",
       [
         input.fullName ?? null,
         input.email?.toLowerCase() ?? null,
+        input.mobile ?? null,
+        input.mobile ?? null,
         input.mobile ?? null,
         Object.prototype.hasOwnProperty.call(input, "organizationName"),
         input.organizationName ?? null,
         req.user!.id,
       ],
     );
+    if (identifierChanged) await revokeUserSessions(req.user!.id, req.sessionId);
     await audit(req, "profile.update", "user", String(req.user!.id), {
-      fields: Object.keys(input),
+      fields: Object.keys(input).filter((key) => key !== "currentPassword"),
     });
     res.json({ ok: true });
   } catch (error) {
@@ -289,14 +366,7 @@ authRouter.post(
       const input = z
         .object({
           currentPassword: z.string().min(1).max(128),
-          newPassword: z
-            .string()
-            .min(12)
-            .max(128)
-            .regex(/[A-Z]/)
-            .regex(/[a-z]/)
-            .regex(/\d/)
-            .regex(/[^A-Za-z0-9]/),
+          newPassword: strongPassword(12),
           otp: z.string().regex(/^\d{6}$/).optional(),
         })
         .refine((value) => value.currentPassword !== value.newPassword, {
@@ -314,7 +384,11 @@ authRouter.post(
         !user?.mfa_enabled ||
         Boolean(
           input.otp &&
-            verifyTotp(decryptField(user.mfa_secret_encrypted) ?? "", input.otp),
+            (await verifyAndConsumeTotp(
+              req.user!.id,
+              decryptField(user.mfa_secret_encrypted) ?? "",
+              input.otp,
+            )),
         );
       if (!currentPasswordValid || !secondFactorValid) {
         await audit(req, "auth.password_change_failed", "user", String(req.user!.id));
@@ -401,7 +475,12 @@ authRouter.post(
       );
       if (!otp || new Date(otp.expires_at) < new Date() || otp.attempts >= 5)
         return res.status(410).json({ message: "کد منقضی یا مسدود شده است." });
-      if (otp.code_hash !== blindIndex(`${req.user!.id}:${input.code}`)) {
+      const expectedOtp = Buffer.from(blindIndex(`${req.user!.id}:${input.code}`));
+      const storedOtp = Buffer.from(String(otp.code_hash));
+      if (
+        expectedOtp.length !== storedOtp.length ||
+        !crypto.timingSafeEqual(expectedOtp, storedOtp)
+      ) {
         await execute(
           "UPDATE verification_otps SET attempts=attempts+1 WHERE id=?",
           [otp.id],
@@ -466,7 +545,7 @@ authRouter.post(
         [req.user!.id],
       );
       const secret = decryptField(user?.mfa_pending_secret_encrypted);
-      if (!secret || !verifyTotp(secret, input.otp))
+      if (!secret || !(await verifyAndConsumeTotp(req.user!.id, secret, input.otp)))
         return res
           .status(400)
           .json({ message: "کد برنامه احراز هویت معتبر نیست." });
@@ -475,6 +554,10 @@ authRouter.post(
         "UPDATE users SET mfa_enabled=1,mfa_secret_encrypted=mfa_pending_secret_encrypted,mfa_pending_secret_encrypted=NULL,mfa_recovery_codes=? WHERE id=?",
         [JSON.stringify(recovery.hashes), req.user!.id],
       );
+      // Every existing session predates the second factor: revoke them all and
+      // give this device a fresh session whose MFA claim is genuinely verified.
+      await revokeUserSessions(req.user!.id);
+      await issueSession(req, res, { ...req.user!, mfaVerified: true });
       await audit(req, "auth.mfa_enabled", "user", String(req.user!.id));
       res.json({ enabled: true, recoveryCodes: recovery.codes });
     } catch (error) {
@@ -503,7 +586,7 @@ authRouter.post(
         !user ||
         !(await bcrypt.compare(input.password, user.password_hash)) ||
         !secret ||
-        !verifyTotp(secret, input.otp)
+        !(await verifyAndConsumeTotp(req.user!.id, secret, input.otp))
       )
         return res
           .status(401)
@@ -512,8 +595,12 @@ authRouter.post(
         "UPDATE users SET mfa_enabled=0,mfa_secret_encrypted=NULL,mfa_pending_secret_encrypted=NULL,mfa_recovery_codes=NULL WHERE id=?",
         [req.user!.id],
       );
+      // Turning MFA off invalidates every session, including this one: the
+      // user must sign in again, and no old "mfaVerified" claim survives.
+      await revokeUserSessions(req.user!.id);
+      clearSessionCookies(res);
       await audit(req, "auth.mfa_disabled", "user", String(req.user!.id));
-      res.json({ enabled: false });
+      res.json({ enabled: false, reauthRequired: true });
     } catch (error) {
       next(error);
     }

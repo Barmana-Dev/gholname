@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { NextFunction, Response } from "express";
 import jwt from "jsonwebtoken";
 import { config } from "./config.js";
+import { decryptField, verifyTotpStep } from "./crypto.js";
 import { execute, rows, transaction } from "./db.js";
 import type { AuthRequest, AuthUser, RoleCode } from "./types.js";
 
@@ -21,7 +22,13 @@ const roleCodes = new Set<RoleCode>([
 
 export function hydrateSessionUser(
   verified: AuthUser,
-  current?: { status?: string; role?: string; name?: string },
+  current?: {
+    status?: string;
+    role?: string;
+    name?: string;
+    /** Current server-side MFA state; when given it overrides the JWT claim. */
+    mfaEnabled?: number | boolean;
+  },
 ): AuthUser | null {
   if (
     !current ||
@@ -36,7 +43,11 @@ export function hydrateSessionUser(
     id: Number(verified.id),
     role: current.role as RoleCode,
     name: current.name,
-    mfaVerified: verified.mfaVerified,
+    // A claim minted while MFA was on is worthless once MFA is switched off.
+    mfaVerified:
+      current.mfaEnabled === undefined
+        ? verified.mfaVerified
+        : Boolean(verified.mfaVerified) && Boolean(Number(current.mfaEnabled)),
   };
 }
 
@@ -48,6 +59,7 @@ const sessionMaxAgeMs = () => config.SESSION_TTL_HOURS * 60 * 60 * 1000;
 
 export function signToken(user: AuthUser, jti: string): string {
   return jwt.sign(user, config.JWT_SECRET, {
+    algorithm: "HS256",
     expiresIn: Math.floor(sessionMaxAgeMs() / 1000),
     issuer: "regbroker",
     audience: "regbroker-web",
@@ -214,6 +226,7 @@ export async function authenticate(
   }
   try {
     const verified = jwt.verify(token, config.JWT_SECRET, {
+      algorithms: ["HS256"],
       issuer: "regbroker",
       audience: "regbroker-web",
     }) as AuthUser & { jti?: string };
@@ -224,7 +237,7 @@ export async function authenticate(
     let current;
     try {
       [current] = await rows<any[]>(
-        "SELECT u.status,u.full_name name,u.must_change_password mustChange,r.code role,s.revoked_at revokedAt,s.expires_at sessionExpiresAt FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN user_sessions s ON s.jti=? AND s.user_id=u.id WHERE u.id=? LIMIT 1",
+        "SELECT u.status,u.full_name name,u.must_change_password mustChange,u.mfa_enabled mfaEnabled,r.code role,s.revoked_at revokedAt,s.expires_at sessionExpiresAt FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN user_sessions s ON s.jti=? AND s.user_id=u.id WHERE u.id=? LIMIT 1",
         [verified.jti, verified.id],
       );
     } catch {
@@ -257,6 +270,26 @@ export async function authenticate(
       });
       return;
     }
+    const mfaSetupRequired =
+      config.REQUIRE_ADMIN_MFA &&
+      current.role === "admin" &&
+      Number(current.mfaEnabled) !== 1;
+    if (
+      mfaSetupRequired &&
+      ![
+        "/api/auth/me",
+        "/api/auth/password/change",
+        "/api/auth/mfa/setup",
+        "/api/auth/mfa/enable",
+        "/api/auth/logout",
+      ].includes(req.originalUrl.split("?")[0])
+    ) {
+      res.status(403).json({
+        message: "مدیران باید پیش از ادامه احراز هویت دومرحله‌ای را فعال کنند.",
+        mfaSetupRequired: true,
+      });
+      return;
+    }
     const currentUser = hydrateSessionUser(verified, current);
     if (!currentUser) {
       res.status(401).json({ message: "حساب کاربری فعال نیست." });
@@ -268,6 +301,42 @@ export async function authenticate(
   } catch {
     res.status(401).json({ message: "نشست شما معتبر نیست یا منقضی شده است." });
   }
+}
+
+/**
+ * Step-up authentication for sensitive admin actions: requires the acting
+ * user to have MFA enabled *now* and to supply a valid current TOTP code.
+ */
+export async function verifyStepUp(
+  req: AuthRequest,
+  otp: unknown,
+): Promise<boolean> {
+  if (typeof otp !== "string" || !/^\d{6}$/.test(otp) || !req.user) return false;
+  const [user] = await rows<any[]>(
+    "SELECT mfa_enabled,mfa_secret_encrypted FROM users WHERE id=?",
+    [req.user.id],
+  );
+  if (!user || Number(user.mfa_enabled) !== 1) return false;
+  const secret = decryptField(user.mfa_secret_encrypted);
+  return Boolean(secret && (await verifyAndConsumeTotp(req.user.id, secret, otp)));
+}
+
+/**
+ * Verifies a TOTP code and burns its time step, so the same code (even inside
+ * its 90-second tolerance window) can never be used twice.
+ */
+export async function verifyAndConsumeTotp(
+  userId: number,
+  secret: string,
+  code: string,
+): Promise<boolean> {
+  const step = verifyTotpStep(secret, code);
+  if (step === null) return false;
+  const result = await execute(
+    "UPDATE users SET mfa_last_step=? WHERE id=? AND (mfa_last_step IS NULL OR mfa_last_step<?)",
+    [step, userId, step],
+  );
+  return result.affectedRows === 1;
 }
 
 export function authorize(...roles: RoleCode[]) {
@@ -314,28 +383,37 @@ export async function audit(
       "SELECT entry_hash FROM audit_logs ORDER BY id DESC LIMIT 1 FOR UPDATE",
     );
     const previousHash = last[0]?.entry_hash ?? null;
+    // Every value stored in the row (including IP and user-agent) is part of
+    // the hashed payload, and the exact payload is stored with the row so the
+    // chain can be re-verified later (see scripts/verify-audit-chain.ts).
+    const ipAddress = req.ip ?? null;
+    const userAgent = req.get("user-agent")?.slice(0, 255) ?? null;
     const payload = JSON.stringify({
+      version: 2,
       actor: req.user?.id ?? null,
       action,
       entityType,
-      entityId,
+      entityId: entityId ?? null,
+      ipAddress,
+      userAgent,
       previousHash,
       timestamp: new Date().toISOString(),
       metadata: metadata ?? null,
     });
     const entryHash = crypto.createHash("sha256").update(payload).digest("hex");
     await connection.execute(
-      "INSERT INTO audit_logs (actor_id,action,entity_type,entity_id,ip_address,user_agent,metadata,previous_hash,entry_hash) VALUES (?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO audit_logs (actor_id,action,entity_type,entity_id,ip_address,user_agent,metadata,previous_hash,entry_hash,entry_payload) VALUES (?,?,?,?,?,?,?,?,?,?)",
       [
         req.user?.id ?? null,
         action,
         entityType,
         entityId ?? null,
-        req.ip,
-        req.get("user-agent")?.slice(0, 255) ?? null,
+        ipAddress,
+        userAgent,
         metadata ? JSON.stringify(metadata) : null,
         previousHash,
         entryHash,
+        payload,
       ],
     );
   });

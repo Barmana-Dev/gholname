@@ -146,6 +146,11 @@ npm run db:check
 
 ## ملاحظات امنیتی پیش از انتشار
 
-پیش از production باید JWT از localStorage به session امن یا سازوکار revoke منتقل شود، CSRF و rate-limit توزیع‌شده اضافه شود، upload quota و AV/CDR فعال شود، backup با رمزنگاری authenticated و restore ایمن انجام شود، MySQL روی TLS/private network قرار گیرد، seed credentials حذف شوند و penetration test مجاز روی staging انجام شود.
+وضعیت واقعی همین نسخه (جزئیات و ارجاع به فایل‌ها در `SECURITY_AUDIT_README.md`):
+
+- **انجام‌شده در کد:** نشست HttpOnly با jti قابل ابطال (ابطال در logout، تغییر رمز، تغییر MFA، تعلیق/تغییر نقش)، CSRF و بررسی Origin، backup با AES‑256‑GCM و restore با snapshot/maintenance/rollback، سهمیه/limiter/همزمانی/اسکن ClamAV برای مدارک **و پیوست شکایت**، شمارندهٔ مشترک در دیتابیس برای ورود/MFA/آپلود، قفل حساب پس از شکست MFA، audit فقط‑افزودنی با هش کامل ردیف و anchor خارجی، اجبار MFA مدیر و step-up برای ساخت/تغییر مدیر، رمز دعوت یک‌بارمصرف، TLS دیتابیس، health عمومی حداقلی، seed توسعه جداگانه.
+- **همچنان وابسته به استقرار شما:** `NODE_ENV=production` با `RATE_LIMIT_STORE=database`، `UPLOAD_SCAN_MODE=clamav` (clamd در دسترس)، `DB_SSL=true` برای دیتابیس غیرمحلی، HTTPS و reverse proxy، secret manager، مجوزهای DB (حساب برنامه بدون DROP TRIGGER/ALTER روی `audit_logs`)، `AUDIT_ANCHOR_URL` به مقصد مستقل، آزمون نفوذ مجاز روی staging، و CDR که پیاده نشده است.
+- **CDR (بازسازی فایل):** در `CDR_MODE=on` هر فایل آپلودی پس از ClamAV بازسازی می‌شود و فقط نسخهٔ بازسازی‌شده ذخیره می‌شود (SHA-256 فایل اصلی در `original_sha256` برای audit می‌ماند): تصاویر با `sharp` از روی پیکسل‌ها دوباره کدگذاری می‌شوند (بدون EXIF/payload پنهان)، PDF با Ghostscript و `-sDEVICE=pdfimage24` به PDF فقط‑تصویر تبدیل می‌شود و خروجی از نظر JavaScript/Action/EmbeddedFile بررسی می‌شود، KML از روی مختصات و متن اعتبارسنجی‌شده دوباره ساخته می‌شود. ZIP دیگر پذیرفته نمی‌شود. در production باید Ghostscript (`gs`) نصب و `CDR_MODE=on` باشد.
+- migrationهای `010` تا `013` را با `npm run db:migrate` اعمال کنید.
 
 PSP رسمی، API سازمان ثبت، SMS/Email رسمی، HTTPS، secret manager، reverse proxy و سرور production وابستگی‌های بیرونی هستند و بدون credential/قرارداد واقعی فعال نمی‌شوند.

@@ -179,3 +179,17 @@ describe("validation", () => {
     });
   });
 });
+
+describe("strongPassword", () => {
+  it("rejects passwords longer than bcrypt's 72 bytes", async () => {
+    const { strongPassword } = await import("./validation.js");
+    const persian = "رمزعبورطولانی".repeat(5) + "aA1!"; // > 72 bytes
+    expect(strongPassword(10).safeParse(persian).success).toBe(false);
+  });
+  it("rejects common and repetitive passwords but accepts a strong one", async () => {
+    const { strongPassword } = await import("./validation.js");
+    expect(strongPassword(10).safeParse("Password123!").success).toBe(false);
+    expect(strongPassword(10).safeParse("Aaaaaaa1!x").success).toBe(false);
+    expect(strongPassword(10).safeParse("Tr0ub4dor&3xyz").success).toBe(true);
+  });
+});

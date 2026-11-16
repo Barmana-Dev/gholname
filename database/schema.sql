@@ -22,6 +22,7 @@ CREATE TABLE users (
   organization_national_id_hash CHAR(64) NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   must_change_password TINYINT(1) NOT NULL DEFAULT 0,
+  mfa_last_step BIGINT UNSIGNED NULL,
   mfa_enabled TINYINT(1) NOT NULL DEFAULT 0,
   mfa_secret_encrypted TEXT NULL,
   mfa_pending_secret_encrypted TEXT NULL,
@@ -158,6 +159,7 @@ CREATE TABLE documents (
   mime_type VARCHAR(100) NOT NULL,
   size_bytes BIGINT UNSIGNED NOT NULL,
   sha256 CHAR(64) NOT NULL,
+  original_sha256 CHAR(64) NULL,
   version SMALLINT UNSIGNED NOT NULL DEFAULT 1,
   sensitivity ENUM('normal','confidential','highly_confidential') NOT NULL DEFAULT 'confidential',
   review_status ENUM('received','deficient','rejected','needs_revision','initially_accepted') NOT NULL DEFAULT 'received',
@@ -279,11 +281,34 @@ CREATE TABLE audit_logs (
   metadata JSON NULL,
   previous_hash CHAR(64) NULL,
   entry_hash CHAR(64) NOT NULL,
+  entry_payload MEDIUMTEXT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_audit_actor_time (actor_id, created_at),
   INDEX idx_audit_actor_action_time (actor_id,action,created_at),
   INDEX idx_audit_entity (entity_type, entity_id),
   CONSTRAINT fk_audit_actor FOREIGN KEY (actor_id) REFERENCES users(id)
+) ENGINE=InnoDB;
+
+-- Append-only: rows can be added, never changed or removed through SQL.
+CREATE TRIGGER audit_logs_no_update BEFORE UPDATE ON audit_logs
+  FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_logs is append-only';
+CREATE TRIGGER audit_logs_no_delete BEFORE DELETE ON audit_logs
+  FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_logs is append-only';
+
+CREATE TABLE audit_anchors (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  last_audit_id BIGINT UNSIGNED NOT NULL,
+  entry_hash CHAR(64) NOT NULL,
+  delivered_externally TINYINT(1) NOT NULL DEFAULT 0,
+  anchored_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_audit_anchors_audit (last_audit_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE rate_limit_hits (
+  rl_key VARCHAR(190) PRIMARY KEY,
+  hits INT UNSIGNED NOT NULL DEFAULT 0,
+  reset_at DATETIME(3) NOT NULL,
+  INDEX idx_rate_limit_reset (reset_at)
 ) ENGINE=InnoDB;
 
 CREATE TABLE api_request_logs (
@@ -554,6 +579,7 @@ CREATE TABLE complaint_attachments (
   mime_type VARCHAR(100) NOT NULL,
   size_bytes BIGINT UNSIGNED NOT NULL,
   sha256 CHAR(64) NOT NULL,
+  original_sha256 CHAR(64) NULL,
   uploaded_by BIGINT UNSIGNED NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_complaint_attachments (complaint_id,created_at),

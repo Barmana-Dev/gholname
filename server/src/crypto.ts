@@ -94,6 +94,20 @@ export function totpCode(secret: string, timestamp = Date.now()): string {
   return String(code).padStart(6, "0");
 }
 
+/** Returns the matching 30-second time step, or null when the code is wrong. */
+export function verifyTotpStep(secret: string, code: string): number | null {
+  if (!/^\d{6}$/.test(code)) return null;
+  const now = Date.now();
+  let matched: number | null = null;
+  for (const offset of [-1, 0, 1]) {
+    const expected = totpCode(secret, now + offset * 30_000);
+    // Evaluate every window (no early exit) to keep timing uniform.
+    if (crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(code)))
+      matched = Math.floor((now + offset * 30_000) / 30_000);
+  }
+  return matched;
+}
+
 export function verifyTotp(secret: string, code: string): boolean {
   if (!/^\d{6}$/.test(code)) return false;
   return [-1, 0, 1].some((offset) => {

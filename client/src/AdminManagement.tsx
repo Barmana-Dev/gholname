@@ -150,11 +150,16 @@ export function AdminManagement() {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget));
     try {
-      await request("/admin/users", {
-        method: "POST",
-        body: JSON.stringify(values),
-      });
-      setMessage("کاربر مدیریتی در وضعیت انتظار و با ثبت audit ایجاد شد.");
+      const created = await request<{ temporaryPassword: string }>(
+        "/admin/users",
+        {
+          method: "POST",
+          body: JSON.stringify(values),
+        },
+      );
+      setMessage(
+        `کاربر در وضعیت انتظار ایجاد شد. رمز یک‌بارمصرف (فقط همین‌جا نمایش داده می‌شود و ورود اول تغییر رمز اجباری دارد): ${created.temporaryPassword}`,
+      );
       event.currentTarget.reset();
       await load("users");
     } catch (error) {
@@ -165,11 +170,13 @@ export function AdminManagement() {
   }
   async function updateUser(item: any, form: HTMLFormElement) {
     const values = new FormData(form);
+    const stepUpOtp = values.get("stepUpOtp");
     await request(`/admin/users/${item.id}`, {
       method: "PATCH",
       body: JSON.stringify({
         role: values.get("role"),
         status: values.get("status"),
+        ...(stepUpOtp ? { stepUpOtp } : {}),
       }),
     });
   }
@@ -496,11 +503,11 @@ export function AdminManagement() {
               ))}
             </select>
             <input
-              name="temporaryPassword"
-              type="password"
-              required
-              minLength={12}
-              placeholder="رمز موقت پیچیده"
+              name="stepUpOtp"
+              inputMode="numeric"
+              pattern="[0-9]{6}"
+              placeholder="کد دومرحله‌ای شما (برای نقش مدیر الزامی)"
+              autoComplete="one-time-code"
             />
             <button className="button primary">ایجاد در وضعیت انتظار</button>
           </form>
@@ -694,6 +701,14 @@ export function AdminManagement() {
                 <option value="suspended">تعلیق</option>
                 <option value="pending">در انتظار</option>
               </select>
+              <input
+                name="stepUpOtp"
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                placeholder="کد دومرحله‌ای (برای نقش مدیر)"
+                autoComplete="one-time-code"
+                disabled={user?.role !== "admin"}
+              />
               <button
                 className="button secondary"
                 disabled={user?.role !== "admin"}

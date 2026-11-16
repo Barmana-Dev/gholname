@@ -72,13 +72,55 @@ if [[ -n "$(find "$REG_TEMP_DIR/uploads-staging" ! -type f ! -type d -print -qui
   exit 8
 fi
 
-# 4. Only now write to the database and the uploads directory.
-MYSQL_PWD="$REG_DB_PASSWORD" "$REG_MYSQL_BIN" \
-  --host="$REG_DB_HOST" \
-  --port="$REG_DB_PORT" \
-  --user="$REG_DB_USER" \
-  "$REG_DB_NAME" < <(gzip -dc "$REG_TEMP_DIR/bundle/database.sql.gz")
+# 4. Transactional restore: snapshot -> maintenance -> apply -> swap -> rollback on failure.
+REG_DUMP_BIN="${MYSQLDUMP_BIN:-/Applications/XAMPP/xamppfiles/bin/mysqldump}"
+REG_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+REG_BACKUP_DIR="${BACKUP_DIR:-backups}"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REG_MAINTENANCE_FILE="${MAINTENANCE_FLAG_FILE:-$PROJECT_ROOT/.maintenance}"
+REG_UPLOAD_PARENT="$(dirname "$REG_UPLOAD_DIR")"
+REG_UPLOAD_NEW="${REG_UPLOAD_DIR%/}.restore-new-$REG_STAMP"
+REG_UPLOAD_PREV="${REG_UPLOAD_DIR%/}.pre-restore-$REG_STAMP"
+REG_ROLLBACK_SQL="$REG_BACKUP_DIR/pre-restore-$REG_STAMP.sql.gz"
+mkdir -p "$REG_BACKUP_DIR" "$REG_UPLOAD_PARENT"
 
-mkdir -p "$REG_UPLOAD_DIR"
-cp -R "$REG_TEMP_DIR/uploads-staging/." "$REG_UPLOAD_DIR/"
+mysql_cli() { MYSQL_PWD="$REG_DB_PASSWORD" "$REG_MYSQL_BIN" --host="$REG_DB_HOST" --port="$REG_DB_PORT" --user="$REG_DB_USER" "$REG_DB_NAME"; }
+
+# 4a. Stage the new uploads next to the live directory (same filesystem, so
+#     the final swap is two atomic renames, not a file-by-file merge).
+mkdir -p "$REG_UPLOAD_NEW"
+cp -R "$REG_TEMP_DIR/uploads-staging/." "$REG_UPLOAD_NEW/"
+
+# 4b. Snapshot the CURRENT database so any failure can be rolled back.
+MYSQL_PWD="$REG_DB_PASSWORD" "$REG_DUMP_BIN" \
+  --host="$REG_DB_HOST" --port="$REG_DB_PORT" --user="$REG_DB_USER" \
+  --single-transaction --routines --events --triggers --default-character-set=utf8mb4 \
+  "$REG_DB_NAME" | gzip -9 > "$REG_ROLLBACK_SQL"
+gzip -t "$REG_ROLLBACK_SQL"
+chmod 600 "$REG_ROLLBACK_SQL"
+
+# 4c. Maintenance mode: the API answers 503 while the two halves are swapped.
+: > "$REG_MAINTENANCE_FILE"
+SWAPPED=0
+rollback() {
+  printf '%s\n' "Restore FAILED - rolling back to the pre-restore state." >&2
+  if [[ "$SWAPPED" == "1" && -d "$REG_UPLOAD_PREV" ]]; then
+    rm -rf "${REG_UPLOAD_DIR%/}.failed-$REG_STAMP"
+    [[ -d "$REG_UPLOAD_DIR" ]] && mv "$REG_UPLOAD_DIR" "${REG_UPLOAD_DIR%/}.failed-$REG_STAMP"
+    mv "$REG_UPLOAD_PREV" "$REG_UPLOAD_DIR"
+  fi
+  gzip -dc "$REG_ROLLBACK_SQL" | mysql_cli || printf '%s\n' "DATABASE ROLLBACK FAILED - restore it manually from $REG_ROLLBACK_SQL" >&2
+  rm -rf "$REG_UPLOAD_NEW"
+  rm -f "$REG_MAINTENANCE_FILE"
+}
+trap 'rc=$?; if [[ $rc -ne 0 ]]; then rollback; fi; rm -rf "$REG_TEMP_DIR"' EXIT
+
+# 4d. Apply the database, then replace (not merge) the uploads directory.
+gzip -dc "$REG_TEMP_DIR/bundle/database.sql.gz" | mysql_cli
+if [[ -d "$REG_UPLOAD_DIR" ]]; then mv "$REG_UPLOAD_DIR" "$REG_UPLOAD_PREV"; fi
+SWAPPED=1
+mv "$REG_UPLOAD_NEW" "$REG_UPLOAD_DIR"
+
+rm -f "$REG_MAINTENANCE_FILE"
 printf '%s\n' "Restore completed; checksum, authenticated decryption and archive paths verified."
+printf '%s\n' "Rollback material kept: $REG_ROLLBACK_SQL and $REG_UPLOAD_PREV (delete after you have verified the result)."

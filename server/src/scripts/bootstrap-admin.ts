@@ -1,25 +1,13 @@
 /**
  * Creates the first administrator for a fresh production database without
- * seed.sql. The password is random, shown once, and must be changed on first
+ * seed-dev-users.sql (load only seed-base.sql). The password is random, shown once, and must be changed on first
  * login. Usage:
  *   BOOTSTRAP_ADMIN_MOBILE=09xxxxxxxxx BOOTSTRAP_ADMIN_NAME="نام مدیر" \
  *     npm run bootstrap:admin -w server
  */
-import crypto from "node:crypto";
 import bcrypt from "bcrypt";
 import { db, rows } from "../db.js";
-
-function randomPassword(): string {
-  const sets = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", "!@#$%^&*-_=+"];
-  const all = sets.join("");
-  const chars = sets.map((set) => set[crypto.randomInt(set.length)]);
-  while (chars.length < 24) chars.push(all[crypto.randomInt(all.length)]);
-  for (let i = chars.length - 1; i > 0; i -= 1) {
-    const j = crypto.randomInt(i + 1);
-    [chars[i], chars[j]] = [chars[j], chars[i]];
-  }
-  return chars.join("");
-}
+import { generateInvitePassword } from "../invite-password.js";
 
 async function main() {
   const mobile = process.env.BOOTSTRAP_ADMIN_MOBILE ?? "";
@@ -40,7 +28,7 @@ async function main() {
     console.error("Role 'admin' is missing. Load database/schema.sql and the role seed first.");
     process.exit(4);
   }
-  const password = randomPassword();
+  const password = generateInvitePassword();
   await db.execute(
     "INSERT INTO users (role_id,full_name,email,mobile,password_hash,must_change_password,status) VALUES (?,?,?,?,?,1,'active')",
     [role.id, name, `${mobile}@mobile.regbroker.local`, mobile, await bcrypt.hash(password, 12)],
