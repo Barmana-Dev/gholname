@@ -4,6 +4,7 @@
   background: #f6f8f7;
   font-synthesis: none;
   --ink: #102f2b;
+  --gh-navy: #15314b;
   --green: #0d5b4f;
   --mint: #d9eee8;
   --gold: #c6a45b;
@@ -1062,8 +1063,9 @@ input[type="checkbox"] {
   }
 }
 footer {
-  background: #fff;
-  border-top: 1px solid var(--line);
+  background: var(--gh-navy);
+  color: #fff;
+  border-top: 0;
   padding-top: 45px;
 }
 .footer-grid {
@@ -1074,12 +1076,13 @@ footer {
 }
 .footer-grid p {
   font-size: 12px;
-  color: var(--muted);
+  color: #c9d6e3;
   line-height: 2;
   max-width: 420px;
 }
 .footer-grid h4 {
   font-size: 13px;
+  color: #fff;
 }
 .footer-grid > div:not(:first-child) {
   display: flex;
@@ -1089,20 +1092,46 @@ footer {
 .footer-grid a,
 .footer-grid span {
   font-size: 12px;
-  color: var(--muted);
+  color: #dce6f0;
   display: flex;
   align-items: center;
   gap: 7px;
 }
+.footer-grid a {
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+.footer-grid a:hover {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.footer-grid a:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.footer-grid svg {
+  flex-shrink: 0;
+  color: #b9cce0;
+}
 .footer-bottom {
   text-align: center;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
   padding: 17px;
-  color: var(--muted);
+  color: #b9cce0;
   font-size: 11px;
 }
 .footer-brand {
   margin-bottom: 14px;
+}
+/* The logo is navy line-art on a transparent background: render it white so it
+   stays visible on the navy footer. The wordmark is white already. */
+.footer-brand img {
+  filter: brightness(0) invert(1);
+}
+.footer-brand span {
+  color: #fff;
 }
 .panel-shell {
   min-height: 100vh;
