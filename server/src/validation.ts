@@ -15,17 +15,19 @@ const COMMON_PASSWORDS = new Set(
  * are rejected instead of being truncated.
  */
 export function strongPassword(minimum: number) {
+  // String checks (.min/.max/.regex) must come BEFORE any .refine(): in Zod 3
+  // .refine() returns a ZodEffects, which has no string methods.
   return z
     .string()
     .min(minimum)
     .max(128)
-    .refine((value) => Buffer.byteLength(value, "utf8") <= 72, {
-      message: "رمز عبور نباید بیش از ۷۲ بایت باشد.",
-    })
     .regex(/[A-Z]/)
     .regex(/[a-z]/)
     .regex(/\d/)
     .regex(/[^A-Za-z0-9]/)
+    .refine((value) => Buffer.byteLength(value, "utf8") <= 72, {
+      message: "رمز عبور نباید بیش از ۷۲ بایت باشد.",
+    })
     .refine((value) => !COMMON_PASSWORDS.has(value.toLowerCase()), {
       message: "این رمز عبور بسیار رایج است.",
     })
