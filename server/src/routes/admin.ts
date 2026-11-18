@@ -701,43 +701,6 @@ adminRouter.get(
   },
 );
 
-adminRouter.patch(
-  "/users/:id",
-  authorize("admin"),
-  async (req: AuthRequest, res, next) => {
-    try {
-      const input = z
-        .object({
-          role: z.string().trim().min(2).max(40).optional(),
-          status: z.enum(["active", "suspended", "pending"]).optional(),
-        })
-        .refine((value) => Object.keys(value).length > 0)
-        .parse(req.body);
-      const [role] = input.role
-        ? await rows<any[]>("SELECT id FROM roles WHERE code=?", [input.role])
-        : [null];
-      if (input.role && !role)
-        return res.status(400).json({ message: "نقش معتبر نیست." });
-      const result = await execute(
-        "UPDATE users SET role_id=COALESCE(?,role_id),status=COALESCE(?,status) WHERE id=?",
-        [role?.id ?? null, input.status ?? null, req.params.id],
-      );
-      if (!result.affectedRows)
-        return res.status(404).json({ message: "کاربر پیدا نشد." });
-      await audit(
-        req,
-        "user.access_update",
-        "user",
-        String(req.params.id),
-        input,
-      );
-      res.json({ ok: true });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
 adminRouter.get(
   "/backups",
   authorize("technical", "admin", "observer"),

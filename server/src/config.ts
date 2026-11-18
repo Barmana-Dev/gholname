@@ -199,7 +199,12 @@ const schema = z
     }
   });
 
-const parsedConfig = schema.parse(process.env);
+// An empty value in .env (for example `REGISTRY_API_URL=`) means "not set":
+// drop it so optional settings are validated as undefined, not as "".
+const environment = Object.fromEntries(
+  Object.entries(process.env).filter(([, value]) => value !== undefined && value.trim() !== ""),
+);
+const parsedConfig = schema.parse(environment);
 
 export const config = {
   ...parsedConfig,

@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Router } from "express";
@@ -137,6 +136,29 @@ class ConcurrentSubmitError extends Error {
 }
 
 export const applicationsRouter = Router();
+/**
+ * Values that identify one property for duplicate detection. Two requests are
+ * duplicates only when the WHOLE identity matches (section, main and sub plate,
+ * parcel, province and county), so a different unit or place is never blocked.
+ */
+function propertyIdentityParams(property: {
+  registrySection: string;
+  mainPlate: string;
+  subPlate?: string | undefined;
+  parcel?: string | undefined;
+  province: string;
+  county: string;
+}): string[] {
+  return [
+    property.registrySection,
+    property.mainPlate,
+    property.subPlate ?? "",
+    property.parcel ?? "",
+    property.province,
+    property.county,
+  ];
+}
+
 applicationsRouter.use(authenticate);
 applicationsRouter.use(enforceReadOnlyRole("observer"));
 
@@ -154,7 +176,7 @@ applicationsRouter.get("/", async (req: AuthRequest, res, next) => {
       params.push(req.user!.id);
     } else if (["registry_expert", "surveyor"].includes(req.user!.role)) {
       assignmentJoin = "JOIN assignments x ON x.application_id=a.id";
-      where = "WHERE x.expert_id=?";
+      where = "WHERE x.expert_id=? AND x.completed_at IS NULL";
       params.push(req.user!.id);
     } else if (req.user!.role === "support") {
       assignmentJoin =
@@ -212,12 +234,11 @@ applicationsRouter.post(
       if (subdivisionUnits.length)
         serviceFormData.subdivisionUnits = subdivisionUnits;
       const [duplicate] = await rows<any[]>(
-        "SELECT a.id,a.file_number fileNumber,a.status FROM applications a JOIN properties p ON p.application_id=a.id WHERE a.applicant_id=? AND a.service_id=? AND p.registry_section=? AND p.main_plate=? AND a.status NOT IN ('completed','closed_incomplete','out_of_scope','stopped_legal_technical','stopped_security','cancelled_by_applicant','referred_complaint') AND a.created_at>=DATE_SUB(NOW(),INTERVAL 180 DAY) ORDER BY a.id DESC LIMIT 1",
+        "SELECT a.id,a.file_number fileNumber,a.status FROM applications a JOIN properties p ON p.application_id=a.id WHERE a.applicant_id=? AND a.service_id=? AND p.registry_section=? AND p.main_plate=? AND COALESCE(p.sub_plate,'')=? AND COALESCE(p.parcel,'')=? AND p.province=? AND p.county=? AND a.status NOT IN ('completed','closed_incomplete','out_of_scope','stopped_legal_technical','stopped_security','cancelled_by_applicant','referred_complaint') AND a.created_at>=DATE_SUB(NOW(),INTERVAL 180 DAY) ORDER BY a.id DESC LIMIT 1",
         [
           req.user!.id,
           input.serviceId,
-          input.property.registrySection,
-          input.property.mainPlate,
+          ...propertyIdentityParams(input.property),
         ],
       );
       if (duplicate)
@@ -231,12 +252,11 @@ applicationsRouter.post(
         // fast response for normal traffic, while this check closes the race
         // where two requests for the same property arrive concurrently.
         const [concurrentDuplicate] = await connection.execute<any[]>(
-          "SELECT a.id,a.file_number fileNumber FROM applications a JOIN properties p ON p.application_id=a.id WHERE a.applicant_id=? AND a.service_id=? AND p.registry_section=? AND p.main_plate=? AND a.status NOT IN ('completed','closed_incomplete','out_of_scope','stopped_legal_technical','stopped_security','cancelled_by_applicant','referred_complaint') AND a.created_at>=DATE_SUB(NOW(),INTERVAL 180 DAY) ORDER BY a.id DESC LIMIT 1 FOR UPDATE",
+          "SELECT a.id,a.file_number fileNumber FROM applications a JOIN properties p ON p.application_id=a.id WHERE a.applicant_id=? AND a.service_id=? AND p.registry_section=? AND p.main_plate=? AND COALESCE(p.sub_plate,'')=? AND COALESCE(p.parcel,'')=? AND p.province=? AND p.county=? AND a.status NOT IN ('completed','closed_incomplete','out_of_scope','stopped_legal_technical','stopped_security','cancelled_by_applicant','referred_complaint') AND a.created_at>=DATE_SUB(NOW(),INTERVAL 180 DAY) ORDER BY a.id DESC LIMIT 1 FOR UPDATE",
           [
             req.user!.id,
             input.serviceId,
-            input.property.registrySection,
-            input.property.mainPlate,
+            ...propertyIdentityParams(input.property),
           ],
         );
         if (concurrentDuplicate[0])

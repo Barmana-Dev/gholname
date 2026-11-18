@@ -18,10 +18,20 @@ const MAX_COORDINATES_PER_GEOMETRY = 100_000;
 const NUMBER = /^-?\d{1,3}(?:\.\d{1,15})?$/;
 const ALTITUDE = /^-?\d{1,6}(?:\.\d{1,15})?$/;
 
+/** Capture group `index` of a regex match, or "" when absent (strict index access). */
+function group(match: RegExpExecArray | RegExpMatchArray | null | undefined, index: number): string {
+  return match?.[index] ?? "";
+}
+
 function xmlEscape(value: string): string {
-  return value.replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c]!,
-  );
+  const entities: Record<string, string> = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&apos;",
+  };
+  return value.replace(/[&<>"']/g, (c) => entities[c] ?? c);
 }
 
 function plainText(raw: string, maxLength: number): string {
@@ -44,7 +54,9 @@ function parseCoordinates(raw: string): string {
       const parts = token.split(",");
       if (parts.length < 2 || parts.length > 3)
         throw new CdrRejectedError("مختصات KML معتبر نیست.");
-      const [lon, lat, alt] = parts;
+      const lon = parts[0] ?? "";
+      const lat = parts[1] ?? "";
+      const alt = parts[2];
       if (!NUMBER.test(lon) || !NUMBER.test(lat) || (alt !== undefined && !ALTITUDE.test(alt)))
         throw new CdrRejectedError("مختصات KML معتبر نیست.");
       if (Math.abs(Number(lon)) > 180 || Math.abs(Number(lat)) > 90)
@@ -56,7 +68,7 @@ function parseCoordinates(raw: string): string {
 
 function firstCoordinates(block: string): string | null {
   const match = /<coordinates\b[^>]*>([\s\S]*?)<\/coordinates>/i.exec(block);
-  return match ? parseCoordinates(match[1]) : null;
+  return match ? parseCoordinates(group(match, 1)) : null;
 }
 
 /**
@@ -78,27 +90,28 @@ export function sanitizeKml(input: string): string {
   while ((match = pattern.exec(input))) {
     if (placemarks.length >= MAX_PLACEMARKS)
       throw new CdrRejectedError("تعداد Placemark در KML از حد مجاز بیشتر است.");
-    const body = match[1];
+    const body = group(match, 1);
     const name = /<name\b[^>]*>([\s\S]*?)<\/name>/i.exec(body);
     const description = /<description\b[^>]*>([\s\S]*?)<\/description>/i.exec(body);
     const geometries: string[] = [];
 
     for (const point of body.matchAll(/<Point\b[^>]*>([\s\S]*?)<\/Point>/gi)) {
-      const coordinates = firstCoordinates(point[1]);
+      const coordinates = firstCoordinates(group(point, 1));
       if (coordinates) geometries.push(`<Point><coordinates>${coordinates}</coordinates></Point>`);
     }
     for (const line of body.matchAll(/<LineString\b[^>]*>([\s\S]*?)<\/LineString>/gi)) {
-      const coordinates = firstCoordinates(line[1]);
+      const coordinates = firstCoordinates(group(line, 1));
       if (coordinates)
         geometries.push(`<LineString><coordinates>${coordinates}</coordinates></LineString>`);
     }
     for (const polygon of body.matchAll(/<Polygon\b[^>]*>([\s\S]*?)<\/Polygon>/gi)) {
-      const outer = /<outerBoundaryIs\b[^>]*>([\s\S]*?)<\/outerBoundaryIs>/i.exec(polygon[1]);
-      const outerCoordinates = outer ? firstCoordinates(outer[1]) : null;
+      const polygonBody = group(polygon, 1);
+      const outer = /<outerBoundaryIs\b[^>]*>([\s\S]*?)<\/outerBoundaryIs>/i.exec(polygonBody);
+      const outerCoordinates = outer ? firstCoordinates(group(outer, 1)) : null;
       if (!outerCoordinates) continue;
       let rings = `<outerBoundaryIs><LinearRing><coordinates>${outerCoordinates}</coordinates></LinearRing></outerBoundaryIs>`;
-      for (const inner of polygon[1].matchAll(/<innerBoundaryIs\b[^>]*>([\s\S]*?)<\/innerBoundaryIs>/gi)) {
-        const coordinates = firstCoordinates(inner[1]);
+      for (const inner of polygonBody.matchAll(/<innerBoundaryIs\b[^>]*>([\s\S]*?)<\/innerBoundaryIs>/gi)) {
+        const coordinates = firstCoordinates(group(inner, 1));
         if (coordinates)
           rings += `<innerBoundaryIs><LinearRing><coordinates>${coordinates}</coordinates></LinearRing></innerBoundaryIs>`;
       }
@@ -106,8 +119,8 @@ export function sanitizeKml(input: string): string {
     }
     if (!geometries.length) continue;
     placemarks.push(
-      `<Placemark>${name ? `<name>${xmlEscape(plainText(name[1], 200))}</name>` : ""}${
-        description ? `<description>${xmlEscape(plainText(description[1], 2000))}</description>` : ""
+      `<Placemark>${name ? `<name>${xmlEscape(plainText(group(name, 1), 200))}</name>` : ""}${
+        description ? `<description>${xmlEscape(plainText(group(description, 1), 2000))}</description>` : ""
       }${geometries.join("")}</Placemark>`,
     );
   }

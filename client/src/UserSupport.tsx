@@ -1,3 +1,4 @@
+import { fa } from "./labels";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   Bell,
@@ -6,7 +7,7 @@ import {
   Send,
   ShieldCheck,
 } from "lucide-react";
-import { request, formatDate } from "./api";
+import { request, requestAll, formatDate } from "./api";
 import { Notice, PanelLayout } from "./App";
 
 interface Ticket {
@@ -45,8 +46,8 @@ export function UserSupport() {
   const [message, setMessage] = useState("");
   async function load() {
     const [t, n] = await Promise.all([
-      request<Ticket[]>("/operations/tickets"),
-      request<Notification[]>("/operations/notifications"),
+      requestAll<Ticket>("/operations/tickets"),
+      requestAll<Notification>("/operations/notifications"),
     ]);
     setTickets(t);
     setNotifications(n);
@@ -209,7 +210,7 @@ export function UserSupport() {
                     <strong>{t.subject}</strong>
                     <small dir="ltr">{t.tracking_code}</small>
                   </span>
-                  <i className="status">{t.status}</i>
+                  <i className="status">{fa(t.status)}</i>
                   <small>{formatDate(t.updated_at)}</small>
                 </button>
               ))}

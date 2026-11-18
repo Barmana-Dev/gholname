@@ -174,6 +174,11 @@ export async function purgeExpiredSessions(): Promise<void> {
   );
 }
 
+/** Request path without the query string (strict-index safe). */
+function requestPath(req: { originalUrl: string }): string {
+  return req.originalUrl.split("?")[0] ?? "";
+}
+
 const unsafeMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const csrfExemptPaths = new Set(["/api/auth/login", "/api/auth/register"]);
 
@@ -197,7 +202,7 @@ export function csrfGuard(
     return;
   }
   const cookies = parseCookies(req.headers.cookie);
-  if (!cookies[SESSION_COOKIE] || csrfExemptPaths.has(req.originalUrl.split("?")[0])) {
+  if (!cookies[SESSION_COOKIE] || csrfExemptPaths.has(requestPath(req))) {
     next();
     return;
   }
@@ -262,7 +267,7 @@ export async function authenticate(
     ];
     if (
       Number(current.mustChange) === 1 &&
-      !mustChangeAllowed.includes(req.originalUrl.split("?")[0])
+      !mustChangeAllowed.includes(requestPath(req))
     ) {
       res.status(403).json({
         message: "پیش از ادامه باید رمز عبور موقت خود را تغییر دهید.",
@@ -282,7 +287,7 @@ export async function authenticate(
         "/api/auth/mfa/setup",
         "/api/auth/mfa/enable",
         "/api/auth/logout",
-      ].includes(req.originalUrl.split("?")[0])
+      ].includes(requestPath(req))
     ) {
       res.status(403).json({
         message: "مدیران باید پیش از ادامه احراز هویت دومرحله‌ای را فعال کنند.",

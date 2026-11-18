@@ -55,6 +55,57 @@ export async function request<T>(
   return data as T;
 }
 
+export interface PagedResult<T> {
+  items: T[];
+  page: number;
+  hasMore: boolean;
+}
+
+/**
+ * Fetches one page of a list endpoint. The API reports the page size it
+ * actually applied in `X-Page-Size`; a full page means there may be more.
+ * Endpoints that do not paginate (no header) are returned whole.
+ */
+export async function requestPage<T>(
+  path: string,
+  page = 1,
+  limit = 100,
+): Promise<PagedResult<T>> {
+  const separator = path.includes("?") ? "&" : "?";
+  const response = await fetch(
+    `${API}${path}${separator}page=${page}&limit=${limit}`,
+    { credentials: "same-origin" },
+  );
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok)
+    throw new ApiError(
+      data.message ?? "ارتباط با سامانه ناموفق بود.",
+      response.status,
+      data.errors,
+    );
+  const items = Array.isArray(data) ? (data as T[]) : [];
+  const appliedLimit = Number(response.headers.get("X-Page-Size"));
+  return {
+    items,
+    page,
+    hasMore: appliedLimit > 0 && items.length >= appliedLimit,
+  };
+}
+
+/** Loads every page of a list (bounded), so counts and lists are complete. */
+export async function requestAll<T>(
+  path: string,
+  maxPages = 40,
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const result = await requestPage<T>(path, page, 250);
+    all.push(...result.items);
+    if (!result.hasMore) break;
+  }
+  return all;
+}
+
 export async function downloadFile(
   path: string,
   filename: string,

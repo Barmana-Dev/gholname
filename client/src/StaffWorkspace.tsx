@@ -1,3 +1,4 @@
+import { fa } from "./labels";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   ClipboardCheck,
@@ -7,7 +8,7 @@ import {
   ShieldAlert,
   Users,
 } from "lucide-react";
-import { request } from "./api";
+import { request, requestAll } from "./api";
 import type { ApplicationItem } from "./types";
 import { Link } from "./router";
 import { Notice, PanelLayout, statusLabels, useAuth } from "./App";
@@ -93,8 +94,8 @@ export function StaffWorkspace() {
   ].includes(user?.role ?? "");
   async function load() {
     const [a, t] = await Promise.all([
-      request<ApplicationItem[]>("/applications"),
-      request<Ticket[]>("/operations/tickets"),
+      requestAll<ApplicationItem>("/applications"),
+      requestAll<Ticket>("/operations/tickets"),
     ]);
     setApps(a);
     setTickets(t);
@@ -109,14 +110,14 @@ export function StaffWorkspace() {
         user?.role ?? "",
       )
     )
-      setRefunds(await request<RefundRequest[]>("/operations/refund-requests"));
+      setRefunds(await requestAll<RefundRequest>("/operations/refund-requests"));
     if (
       ["compliance", "operations_manager", "admin", "observer"].includes(
         user?.role ?? "",
       )
     )
       setPendingReviews(
-        await request<PendingReview[]>("/operations/review-approvals/pending"),
+        await requestAll<PendingReview>("/operations/review-approvals/pending"),
       );
   }
   useEffect(() => {
@@ -228,6 +229,8 @@ export function StaffWorkspace() {
   }
   async function requestTransfer(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // currentTarget is null after the first await: keep the form element.
+    const formElement = e.currentTarget;
     if (!selected) return;
     const values = new FormData(e.currentTarget);
     try {
@@ -239,7 +242,7 @@ export function StaffWorkspace() {
         },
       );
       setMessage("درخواست انتقال برای تأیید مدیر عملیات ثبت شد.");
-      e.currentTarget.reset();
+      formElement.reset();
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "ثبت انتقال ناموفق بود.",
@@ -248,6 +251,8 @@ export function StaffWorkspace() {
   }
   async function recordInteraction(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // currentTarget is null after the first await: keep the form element.
+    const formElement = e.currentTarget;
     const values = new FormData(e.currentTarget);
     try {
       await request("/operations/support-interactions", {
@@ -265,7 +270,7 @@ export function StaffWorkspace() {
         }),
       });
       setMessage("تعامل پشتیبانی ثبت شد.");
-      e.currentTarget.reset();
+      formElement.reset();
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "ثبت تعامل ناموفق بود.",
@@ -394,7 +399,7 @@ export function StaffWorkspace() {
                       {review.fileNumber} - {review.expertName}
                     </strong>
                     <small>
-                      {review.reportType}: {review.body}
+                      {fa(review.reportType)}: {review.body}
                     </small>
                   </span>
                   <select name="decision" disabled={user.role === "observer"}>
@@ -465,7 +470,7 @@ export function StaffWorkspace() {
                   >
                     ثبت تصمیم
                   </button>
-                  <i className="status">{refund.status}</i>
+                  <i className="status">{fa(refund.status)}</i>
                 </form>
               ))
             ) : (
@@ -683,7 +688,7 @@ export function StaffWorkspace() {
                   {t.applicantName} - {t.tracking_code}
                 </small>
               </span>
-              <i className="status">{t.status}</i>
+              <i className="status">{fa(t.status)}</i>
               {[
                 "support",
                 "operations_manager",

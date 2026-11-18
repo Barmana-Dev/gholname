@@ -2,26 +2,10 @@ import { z } from "zod";
 
 const COMMON_PASSWORDS = new Set(
   [
-    "password1!",
-    "password123!",
-    "qwerty123!",
-    "qwertyuiop1!",
-    "admin123456!",
-    "changeme123!",
-    "changeme123",
-    "welcome123!",
-    "iloveyou123!",
-    "letmein123!",
-    "p@ssw0rd123",
-    "p@ssword123",
-    "password@123",
-    "admin@123456",
-    "12345678aA!",
-    "1q2w3e4r5t!",
-    "abc123456!",
-    "passw0rd!2024",
-    "iran1234567!",
-    "tehran12345!",
+    "password1!", "password123!", "qwerty123!", "qwertyuiop1!", "admin123456!",
+    "changeme123!", "changeme123", "welcome123!", "iloveyou123!", "letmein123!",
+    "p@ssw0rd123", "p@ssword123", "password@123", "admin@123456", "12345678aA!",
+    "1q2w3e4r5t!", "abc123456!", "passw0rd!2024", "iran1234567!", "tehran12345!",
   ].map((value) => value.toLowerCase()),
 );
 
@@ -35,13 +19,13 @@ export function strongPassword(minimum: number) {
     .string()
     .min(minimum)
     .max(128)
+    .refine((value) => Buffer.byteLength(value, "utf8") <= 72, {
+      message: "رمز عبور نباید بیش از ۷۲ بایت باشد.",
+    })
     .regex(/[A-Z]/)
     .regex(/[a-z]/)
     .regex(/\d/)
     .regex(/[^A-Za-z0-9]/)
-    .refine((value) => Buffer.byteLength(value, "utf8") <= 72, {
-      message: "رمز عبور نباید بیش از ۷۲ بایت باشد.",
-    })
     .refine((value) => !COMMON_PASSWORDS.has(value.toLowerCase()), {
       message: "این رمز عبور بسیار رایج است.",
     })
@@ -96,34 +80,32 @@ export const registerSchema = z
     }
   });
 
-export const loginSchema = z
-  .object({
-    mobile: z
+export const loginSchema = z.object({
+  mobile: z
+    .string()
+    .regex(/^09\d{9}$/)
+    .optional(),
+  // Keep legacy staff login working while public login uses mobile only.
+  email: z.string().email().optional(),
+  password: z.string().min(1).max(128),
+  otp: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
       .string()
-      .regex(/^09\d{9}$/)
+      .regex(/^\d{6}$/)
       .optional(),
-    // Keep legacy staff login working while public login uses mobile only.
-    email: z.string().email().optional(),
-    password: z.string().min(1).max(128),
-    otp: z.preprocess(
-      (value) => (value === "" ? undefined : value),
-      z
-        .string()
-        .regex(/^\d{6}$/)
-        .optional(),
-    ),
-    recoveryCode: z.preprocess(
-      (value) => (value === "" ? undefined : value),
-      z
-        .string()
-        .regex(/^[A-Fa-f0-9]{10}$/)
-        .optional(),
-    ),
-  })
-  .refine((value) => Boolean(value.mobile || value.email), {
-    message: "شماره همراه الزامی است.",
-    path: ["mobile"],
-  });
+  ),
+  recoveryCode: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^[A-Fa-f0-9]{10}$/)
+      .optional(),
+  ),
+}).refine((value) => Boolean(value.mobile || value.email), {
+  message: "شماره همراه الزامی است.",
+  path: ["mobile"],
+});
 
 export const applicationSchema = z.object({
   serviceId: z.number().int().positive(),

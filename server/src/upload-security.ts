@@ -166,7 +166,7 @@ export async function scanUploadWithClamav(
       socket.destroy(new Error("clamd timeout"));
     });
     socket.on("error", reject);
-    socket.on("data", (chunk) => chunks.push(chunk));
+    socket.on("data", (chunk: Buffer) => chunks.push(chunk));
     socket.on("close", () => resolve(Buffer.concat(chunks).toString().trim()));
     socket.on("connect", () => {
       socket.write("zINSTREAM\0");

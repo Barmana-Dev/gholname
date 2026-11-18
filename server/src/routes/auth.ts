@@ -40,7 +40,7 @@ const getDummyPasswordHash = () =>
 
 function maskIdentifier(value: string): string {
   if (value.includes("@")) {
-    const [name, domain] = value.split("@");
+    const [name = "", domain = ""] = value.split("@");
     return `${name.slice(0, 2)}***@${domain}`;
   }
   return value.length > 4 ? `${value.slice(0, 4)}***${value.slice(-2)}` : "***";
@@ -321,14 +321,22 @@ authRouter.patch("/me", authenticate, async (req: AuthRequest, res, next) => {
         });
       }
     }
-    if (input.email || input.mobile) {
+    // Only compare the identifiers that were actually supplied: an absent field
+    // must never be matched against other users' values.
+    const duplicateConditions: string[] = [];
+    const duplicateParams: unknown[] = [req.user!.id];
+    if (input.email) {
+      duplicateConditions.push("email=?");
+      duplicateParams.push(input.email.toLowerCase());
+    }
+    if (input.mobile) {
+      duplicateConditions.push("mobile=?");
+      duplicateParams.push(input.mobile);
+    }
+    if (duplicateConditions.length) {
       const duplicate = await rows<any[]>(
-        "SELECT id FROM users WHERE id<>? AND (email=COALESCE(?,email) OR mobile=COALESCE(?,mobile)) LIMIT 1",
-        [
-          req.user!.id,
-          input.email?.toLowerCase() ?? null,
-          input.mobile ?? null,
-        ],
+        `SELECT id FROM users WHERE id<>? AND (${duplicateConditions.join(" OR ")}) LIMIT 1`,
+        duplicateParams,
       );
       if (duplicate.length)
         return res

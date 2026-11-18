@@ -11,7 +11,7 @@ import { db } from "./db.js";
 class MemoryCounterStore implements Store {
   private hits = new Map<string, { count: number; resetAt: number }>();
   constructor(
-    private readonly prefix: string,
+    private readonly keyPrefix: string,
     private windowMs: number,
   ) {}
   init(options: Options): void {
@@ -19,7 +19,7 @@ class MemoryCounterStore implements Store {
   }
   async increment(key: string): Promise<IncrementResponse> {
     const now = Date.now();
-    const id = `${this.prefix}:${key}`;
+    const id = `${this.keyPrefix}:${key}`;
     let entry = this.hits.get(id);
     if (!entry || entry.resetAt <= now) {
       entry = { count: 0, resetAt: now + this.windowMs };
@@ -29,24 +29,24 @@ class MemoryCounterStore implements Store {
     return { totalHits: entry.count, resetTime: new Date(entry.resetAt) };
   }
   async decrement(key: string): Promise<void> {
-    const entry = this.hits.get(`${this.prefix}:${key}`);
+    const entry = this.hits.get(`${this.keyPrefix}:${key}`);
     if (entry && entry.count > 0) entry.count -= 1;
   }
   async resetKey(key: string): Promise<void> {
-    this.hits.delete(`${this.prefix}:${key}`);
+    this.hits.delete(`${this.keyPrefix}:${key}`);
   }
 }
 
 class DatabaseCounterStore implements Store {
   constructor(
-    private readonly prefix: string,
+    private readonly keyPrefix: string,
     private windowMs: number,
   ) {}
   init(options: Options): void {
     this.windowMs = options.windowMs;
   }
   private id(key: string): string {
-    return `${this.prefix}:${key}`.slice(0, 190);
+    return `${this.keyPrefix}:${key}`.slice(0, 190);
   }
   async increment(key: string): Promise<IncrementResponse> {
     const id = this.id(key);

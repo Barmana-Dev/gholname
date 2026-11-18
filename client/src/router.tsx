@@ -118,6 +118,19 @@ export function Route(props: { path: string; element: ReactElement }) {
   return null;
 }
 
+/**
+ * decodeURIComponent throws URIError on a malformed escape such as "%E0%A4%A".
+ * A bad link must never break rendering: fall back to the raw segment so the
+ * page can show its normal "not found" state.
+ */
+export function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function match(pattern: string, pathname: string) {
   if (pattern === "*") return { matches: true, params: {} };
   const keys: string[] = [];
@@ -134,10 +147,7 @@ function match(pattern: string, pathname: string) {
   return {
     matches: true,
     params: Object.fromEntries(
-      keys.map((key, index) => [
-        key,
-        decodeURIComponent(result[index + 1] ?? ""),
-      ]),
+      keys.map((key, index) => [key, safeDecode(result[index + 1] ?? "")]),
     ),
   };
 }

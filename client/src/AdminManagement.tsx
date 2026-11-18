@@ -1,3 +1,4 @@
+import { fa } from "./labels";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { request, formatDate, formatMoney, downloadFile } from "./api";
 import { Notice, PanelLayout } from "./App";
@@ -112,6 +113,8 @@ export function AdminManagement() {
   }
   async function createService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // currentTarget is null after the first await: keep the form element.
+    const formElement = event.currentTarget;
     const values = new FormData(event.currentTarget);
     const lines = (name: string) =>
       String(values.get(name) ?? "")
@@ -138,7 +141,7 @@ export function AdminManagement() {
         }),
       });
       setMessage("خدمت جدید با ثبت سابقه ایجاد شد.");
-      event.currentTarget.reset();
+      formElement.reset();
       await load("services");
     } catch (error) {
       setMessage(
@@ -148,6 +151,8 @@ export function AdminManagement() {
   }
   async function createUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // currentTarget is null after the first await: keep the form element.
+    const formElement = event.currentTarget;
     const values = Object.fromEntries(new FormData(event.currentTarget));
     try {
       const created = await request<{ temporaryPassword: string }>(
@@ -160,7 +165,7 @@ export function AdminManagement() {
       setMessage(
         `کاربر در وضعیت انتظار ایجاد شد. رمز یک‌بارمصرف (فقط همین‌جا نمایش داده می‌شود و ورود اول تغییر رمز اجباری دارد): ${created.temporaryPassword}`,
       );
-      event.currentTarget.reset();
+      formElement.reset();
       await load("users");
     } catch (error) {
       setMessage(
@@ -182,10 +187,10 @@ export function AdminManagement() {
   }
   async function submitRow(event: FormEvent<HTMLFormElement>, item: any) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     try {
-      if (section === "services")
-        await updateService(item, event.currentTarget);
-      if (section === "users") await updateUser(item, event.currentTarget);
+      if (section === "services") await updateService(item, formElement);
+      if (section === "users") await updateUser(item, formElement);
       setMessage("تغییرات با ثبت سابقه ذخیره شد.");
       await load();
     } catch (error) {
@@ -768,7 +773,7 @@ export function AdminManagement() {
                   قانونی: {formatMoney(item.legalFeeRials)} / خدمات:{" "}
                   {formatMoney(item.serviceFeeRials)}
                 </small>
-                <i className="status">{item.status}</i>
+                <i className="status">{fa(item.status)}</i>
               </article>
             ))
           ) : (
@@ -785,7 +790,7 @@ export function AdminManagement() {
                   </small>
                   <small>{item.propertySummary || "ملک ثبت نشده"}</small>
                 </span>
-                <i className="status">{item.status}</i>
+                <i className="status">{fa(item.status)}</i>
                 <small>{formatDate(item.archivedAt)}</small>
               </article>
             ))}
@@ -824,7 +829,7 @@ export function AdminManagement() {
                     </small>
                   </span>
                   <b>{item.accessMode === "export" ? "استخراج" : "مشاهده"}</b>
-                  <i className="status">{item.status}</i>
+                  <i className="status">{fa(item.status)}</i>
                   <small>تا {formatDate(item.validUntil)}</small>
                 </article>
               ),
@@ -868,7 +873,7 @@ export function AdminManagement() {
                   {formatDate(item.created_at ?? item.createdAt)}
                 </small>
               </span>
-              <i className={`status ${item.severity}`}>{item.severity}</i>
+              <i className={`status ${item.severity}`}>{fa(item.severity)}</i>
               <select
                 name="status"
                 defaultValue={item.status}
@@ -903,7 +908,7 @@ export function AdminManagement() {
                       : item.errorMessage}
                   </small>
                 </span>
-                <i className="status">{item.status}</i>
+                <i className="status">{fa(item.status)}</i>
                 {["technical", "admin"].includes(user?.role ?? "") &&
                   item.status === "successful" && (
                     <button onClick={() => verifyBackup(item.id)}>
@@ -928,7 +933,7 @@ export function AdminManagement() {
               <b>
                 {item.attempts}/{item.maxAttempts}
               </b>
-              <i className="status">{item.status}</i>
+              <i className="status">{fa(item.status)}</i>
               <small>{item.lastError ?? formatDate(item.createdAt)}</small>
             </article>
           ))}

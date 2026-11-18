@@ -31,6 +31,28 @@
 - هدرها: CSP صریح (`frame-ancestors 'none'`, `object-src 'none'`)، HSTS preload، Referrer-Policy، Permissions-Policy، `Cache-Control: no-store` برای همهٔ `/api`، sandbox CSP و nosniff برای دانلود فایل، عدم دنبال‌کردن redirect در درخواست‌های خروجی (webhook/registry/anchor)، fallback کلاینت دیگر `/api/*` ناشناخته را با HTML پاسخ نمی‌دهد.
 - فایل `.env` در خروجی تحویل داده نمی‌شود؛ هر کلید قدیمی که در گزارش/زیپ قبلی بوده باید rotate شود.
 
+## بازبینی چهارم (GH-*)
+
+| شناسه | رفع |
+|---|---|
+| GH-UI-01 | `aria-expanded`/برچسب منو از وضعیت واقعی (موبایل: `open`، دسکتاپ: `collapsed`) و Escape در `App.tsx` (PanelLayout) |
+| GH-UI-02 | نوار مراحل به `<ol>` با `aria-current`/`aria-label` تبدیل شد و عنوان مرحلهٔ جاری روی موبایل دیده می‌شود (`styles.css`) |
+| GH-UI-03 | متن صفحهٔ اصلی و صفحهٔ حریم خصوصی با سه مرحله و allow-list چهارفیلدی هماهنگ شد |
+| GH-UI-04 | `summarizeApplicationForm`: خلاصهٔ کامل داده‌ها در مرحلهٔ بازبینی |
+| GH-UI-05 | `client/src/labels.ts` (`fa`, `roleLabel`) در همهٔ رندرهای کد خام |
+| GH-FE-01 | `formElement` پیش از اولین `await` در همهٔ handlerها |
+| GH-FE-02 | مرحلهٔ ۲ پس از اولین ورود فقط پنهان می‌شود؛ بازیابی پیش‌نویس فقط یک‌بار |
+| GH-FE-03 | `refresh()` در AuthContext پس از تغییر رمز و فعال‌سازی MFA |
+| GH-FE-04 | `requestPage`/`requestAll` در `api.ts`؛ «نمایش قدیمی‌تر» در پرونده‌ها؛ آمار از کل رکوردها |
+| GH-FE-05 | پاک‌سازی `error`/`service` با تغییر `code` و نادیده‌گرفتن پاسخ‌های کهنه |
+| GH-FE-06 | `safeDecode` در `router.tsx` |
+| GH-BE-01 | رفع خطاهای `noUncheckedIndexedAccess` در `cdr-pure.ts`، `security.ts`، `auth.ts`، `shared-limits.ts` (`keyPrefix`)، حذف import بلااستفادهٔ `crypto` |
+| GH-BE-02 | مقدار خالی در `.env` در `config.ts` «تنظیم‌نشده» تلقی می‌شود |
+| GH-BE-03 | شرط تکراری‌بودن پروفایل فقط روی فیلدهای ارسال‌شده |
+| GH-BE-04 | کلید کامل ملک: بخش، پلاک اصلی/فرعی، قطعه، استان، شهرستان |
+| GH-SEC-01 | مسیر تکراری قدیمی `PATCH /admin/users/:id` حذف شد؛ step-up و ابطال نشست اجرا می‌شود |
+| GH-SEC-02 | فهرست کارشناس فقط ارجاع‌های فعال (`completed_at IS NULL`) |
+
 ## یافته‌ها و وضعیت
 
 | شناسه | شدت | وضعیت | شواهد | اثر | راهکار لازم |

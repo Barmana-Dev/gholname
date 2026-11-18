@@ -40,16 +40,37 @@ function replaceFile(target: string, bytes: Buffer): void {
   fs.renameSync(temporary, target);
 }
 
-async function reconstructImage(input: Buffer, mimeType: string): Promise<Buffer> {
-  let sharp: typeof import("sharp");
+/** The small part of the sharp API used here (keeps typing independent of sharp's typings). */
+interface SharpPipeline {
+  metadata(): Promise<{ format?: string; pages?: number }>;
+  rotate(): SharpPipeline;
+  jpeg(options: object): SharpPipeline;
+  png(options: object): SharpPipeline;
+  webp(options: object): SharpPipeline;
+  toBuffer(): Promise<Buffer>;
+}
+type SharpFactory = (input: Buffer, options?: object) => SharpPipeline;
+
+async function loadSharp(): Promise<SharpFactory> {
   try {
-    sharp = (await import("sharp")).default as unknown as typeof import("sharp");
+    // A variable specifier keeps the optional native dependency out of the
+    // type-check/bundle graph; a missing install is reported at runtime.
+    const specifier = "sharp";
+    const loaded = (await import(specifier)) as { default?: unknown };
+    return (loaded.default ?? loaded) as SharpFactory;
   } catch {
     throw new CdrUnavailableError("کتابخانهٔ پردازش تصویر (sharp) نصب نیست.");
   }
-  const expected = { "image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp" }[
-    mimeType as "image/jpeg"
-  ];
+}
+
+async function reconstructImage(input: Buffer, mimeType: string): Promise<Buffer> {
+  const sharp = await loadSharp();
+  const formats: Record<string, string> = {
+    "image/jpeg": "jpeg",
+    "image/png": "png",
+    "image/webp": "webp",
+  };
+  const expected = formats[mimeType];
   try {
     const source = sharp(input, {
       limitInputPixels: MAX_IMAGE_PIXELS,

@@ -7,6 +7,7 @@ import {
 } from "./drafts";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -59,6 +60,8 @@ import {
   formatDate,
   formatMoney,
   request,
+  requestAll,
+  requestPage,
 } from "./api";
 import type { ApplicationItem, DashboardData, Service, User } from "./types";
 import { extraStaticPages } from "./PublicEnhancements";
@@ -71,6 +74,7 @@ import { LocationFields } from "./LocationFields";
 import { AdminManagement } from "./AdminManagement";
 import { InternalControls } from "./InternalControls";
 import { can } from "./access";
+import { fa, roleLabels } from "./labels";
 import { PublicOrganizationProfile } from "./OrganizationProfile";
 import { publicNavigation } from "./public-navigation";
 
@@ -123,19 +127,6 @@ function messageTypesForRole(role: string): string[] {
   };
   return byRole[role] ?? [];
 }
-const roleLabels: Record<string, string> = {
-  applicant: "متقاضی",
-  representative: "نماینده یا وکیل",
-  registry_expert: "کارشناس ثبتی",
-  surveyor: "کارشناس نقشه‌برداری",
-  support: "پشتیبانی",
-  finance: "مسئول مالی",
-  operations_manager: "مدیر عملیات",
-  compliance: "مسئول تطبیق",
-  technical: "مسئول فنی",
-  admin: "مدیر سامانه",
-  observer: "ناظر سازمان ثبت",
-};
 
 function parseArrayField(value: unknown): any[] {
   try {
@@ -201,6 +192,8 @@ interface AuthContextValue {
   loading: boolean;
   login: (user: User) => void;
   logout: () => void;
+  /** Re-reads the account from the server (after password/MFA changes). */
+  refresh: () => Promise<void>;
 }
 interface MeResponse {
   mustChangePassword?: boolean;
@@ -217,22 +210,25 @@ function AuthProvider({ children }: { children: ReactNode }) {
   // localStorage.
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const refresh = useCallback(async () => {
+    try {
+      const me = await request<MeResponse>("/auth/me");
+      setUser({
+        id: me.id,
+        name: me.fullName,
+        role: me.role,
+        capabilities: me.capabilities,
+        mustChangePassword: me.mustChangePassword,
+        mfaSetupRequired: me.mfaSetupRequired,
+      });
+    } catch {
+      setUser(null);
+    }
+  }, []);
   useEffect(() => {
     clearLegacySessionKeys(); // drop tokens left by older versions (keeps drafts)
-    request<MeResponse>("/auth/me")
-      .then((me) =>
-        setUser({
-          id: me.id,
-          name: me.fullName,
-          role: me.role,
-          capabilities: me.capabilities,
-          mustChangePassword: me.mustChangePassword,
-          mfaSetupRequired: me.mfaSetupRequired,
-        }),
-      )
-      .catch(() => setUser(null))
-      .finally(() => setLoading(false));
-  }, []);
+    refresh().finally(() => setLoading(false));
+  }, [refresh]);
   const value = useMemo(
     () => ({
       user,
@@ -247,8 +243,9 @@ function AuthProvider({ children }: { children: ReactNode }) {
         clearClientSessionData();
         setUser(null);
       },
+      refresh,
     }),
-    [user, loading],
+    [user, loading, refresh],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -499,9 +496,20 @@ function ServiceDetailPage() {
   const [service, setService] = useState<Service | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
+    // A new code must never show the previous service's error or content.
+    let cancelled = false;
+    setError("");
+    setService(null);
     request<Service>(`/public/services/${encodeURIComponent(code ?? "")}`)
-      .then(setService)
-      .catch((reason) => setError(reason.message));
+      .then((result) => {
+        if (!cancelled) setService(result);
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(reason.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [code]);
   if (error)
     return (
@@ -728,7 +736,7 @@ const staticPages: Record<
     sections: [
       {
         h: "داده‌های ذخیره‌شده در مرورگر شما",
-        p: "پیش‌نویس فرم «درخواست جدید» به‌صورت موقت در حافظهٔ محلی مرورگر شما نگه‌داری می‌شود تا با بستن صفحه از دست نرود. این پیش‌نویس کدملی، شماره همراه و شناسه‌های هویتی را شامل نمی‌شود، پس از دو ساعت منقضی می‌شود و با خروج از حساب یا ثبت نهایی پاک می‌شود. نشست ورود شما در کوکی امن HttpOnly نگه‌داری می‌شود و برای اسکریپت‌های صفحه قابل خواندن نیست.",
+        p: "در فرم «درخواست جدید» فقط چهار انتخاب غیرهویتی (خدمت، سمت متقاضی، نوع ملک و نوع سند) برای مدت دو ساعت در حافظهٔ محلی مرورگر شما نگه‌داری می‌شود تا با بستن صفحه از دست نرود. نشانی، پلاک‌ها، مختصات، مساحت، توضیحات، مالکان/ذی‌نفعان، کدملی و شمارهٔ همراه هرگز در مرورگر ذخیره نمی‌شوند و این پیش‌نویس با خروج از حساب یا ثبت نهایی پاک می‌شود. نشست ورود شما در کوکی امن HttpOnly نگه‌داری می‌شود و برای اسکریپت‌های صفحه قابل خواندن نیست.",
       },
       {
         h: "داده‌های ذخیره‌شده روی سرور",
@@ -1117,10 +1125,32 @@ export function PanelLayout({ children }: { children: ReactNode }) {
       return false;
     }
   });
+  // Below 900px the sidebar is an off-canvas drawer controlled only by `open`;
+  // above it, the hamburger collapses it to an icon rail (`collapsed`).
+  const [mobile, setMobile] = useState(
+    () => window.matchMedia("(max-width: 900px)").matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px)");
+    const update = () => {
+      setMobile(query.matches);
+      if (!query.matches) setOpen(false);
+    };
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [open]);
+  // What assistive technology is told must equal what is actually shown.
+  const sidebarExpanded = mobile ? open : !collapsed;
   function toggleSidebar() {
-    // On small screens the sidebar is an off-canvas drawer; on larger
-    // screens the hamburger collapses it into an icon-only rail.
-    if (window.matchMedia("(max-width: 900px)").matches) {
+    if (mobile) {
       setOpen((value) => !value);
       return;
     }
@@ -1196,11 +1226,11 @@ export function PanelLayout({ children }: { children: ReactNode }) {
             className="menu-button"
             onClick={toggleSidebar}
             aria-controls="panel-sidebar"
-            aria-expanded={open || !collapsed}
+            aria-expanded={sidebarExpanded}
             aria-label={
-              open || !collapsed ? "جمع کردن منوی کناری" : "باز کردن منوی کناری"
+              sidebarExpanded ? "جمع کردن منوی کناری" : "باز کردن منوی کناری"
             }
-            title={open || !collapsed ? "جمع کردن منو" : "باز کردن منو"}
+            title={sidebarExpanded ? "جمع کردن منو" : "باز کردن منو"}
           >
             <Menu />
           </button>
@@ -1252,7 +1282,8 @@ function PanelHome() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
-    request<ApplicationItem[]>("/applications")
+    // Statistics must be computed from ALL records, not only the first page.
+    requestAll<ApplicationItem>("/applications")
       .then(setItems)
       .catch((requestError) =>
         setError(
@@ -1393,18 +1424,26 @@ function ApplicationsPage() {
   const { user } = useAuth();
   const [items, setItems] = useState<ApplicationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextPage, setNextPage] = useState(1);
   const [error, setError] = useState("");
+  async function loadPage(page: number) {
+    try {
+      const result = await requestPage<ApplicationItem>("/applications", page, 50);
+      setItems((current) => (page === 1 ? result.items : [...current, ...result.items]));
+      setHasMore(result.hasMore);
+      setNextPage(page + 1);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "دریافت پرونده‌ها ناموفق بود.",
+      );
+    }
+  }
   useEffect(() => {
-    request<ApplicationItem[]>("/applications")
-      .then(setItems)
-      .catch((requestError) =>
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "دریافت پرونده‌ها ناموفق بود.",
-        ),
-      )
-      .finally(() => setLoading(false));
+    loadPage(1).finally(() => setLoading(false));
   }, []);
   return (
     <PanelLayout>
@@ -1425,7 +1464,25 @@ function ApplicationsPage() {
         ) : loading ? (
           <Loading />
         ) : items.length ? (
-          <ApplicationTable items={items} />
+          <>
+            <ApplicationTable items={items} />
+            {hasMore && (
+              <div className="wizard-actions">
+                <button
+                  type="button"
+                  className="button secondary"
+                  disabled={loadingMore}
+                  onClick={async () => {
+                    setLoadingMore(true);
+                    await loadPage(nextPage);
+                    setLoadingMore(false);
+                  }}
+                >
+                  {loadingMore ? "در حال دریافت…" : "نمایش پرونده‌های قدیمی‌تر"}
+                </button>
+              </div>
+            )}
+          </>
         ) : (
           <Empty
             title="پرونده‌ای وجود ندارد"
@@ -1437,17 +1494,94 @@ function ApplicationsPage() {
   );
 }
 
+interface ReviewRow {
+  label: string;
+  value: string;
+}
+
+const structuredReviewLabels: Record<string, string> = {
+  relatedPropertiesJson: "پلاک‌های مرتبط",
+  partiesJson: "مالکان / ذی‌نفعان",
+  subdivisionUnitsJson: "قطعات و واحدها",
+};
+
+/**
+ * Builds a human-readable summary of everything the applicant entered, straight
+ * from the form controls (so it always matches what will be submitted).
+ */
+function summarizeApplicationForm(form: HTMLFormElement): ReviewRow[] {
+  const rows: ReviewRow[] = [];
+  const seen = new Set<string>();
+  for (const element of Array.from(form.elements)) {
+    if (
+      !(
+        element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement ||
+        element instanceof HTMLSelectElement
+      )
+    )
+      continue;
+    const name = element.name;
+    if (!name || seen.has(name) || name === "serviceId") continue;
+    seen.add(name);
+    const label = element.closest("label");
+    const title = (
+      structuredReviewLabels[name] ??
+      label?.querySelector("span")?.textContent ??
+      element.getAttribute("aria-label") ??
+      ""
+    )
+      .replace(/\*/g, "")
+      .trim();
+    if (!title) continue;
+    let value = "";
+    if (element instanceof HTMLInputElement && element.type === "checkbox") {
+      value = element.checked ? "تأیید شد" : "";
+    } else if (element instanceof HTMLInputElement && element.type === "hidden") {
+      if (name in structuredReviewLabels) {
+        try {
+          const items = JSON.parse(element.value || "[]");
+          value = Array.isArray(items) && items.length ? `${items.length} مورد ثبت شده` : "";
+        } catch {
+          value = "";
+        }
+      } else {
+        // Hidden machine value (for example an ISO date): show the visible text
+        // the user actually typed instead.
+        value =
+          label?.querySelector<HTMLInputElement>('input[type="text"]')?.value ?? "";
+      }
+    } else if (element instanceof HTMLSelectElement) {
+      value = element.selectedOptions[0]?.textContent?.trim() ?? "";
+    } else {
+      value = element.value.trim();
+    }
+    if (value) rows.push({ label: title, value });
+  }
+  return rows;
+}
+
 function NewApplication() {
   const savedDraft = useMemo(() => loadDraft(), []);
   const [services, setServices] = useState<Service[]>([]);
-  const [step, setStep] = useState(Number(savedDraft.step) || 1);
+  // Only identity-free choices are drafted, so a saved draft can resume at
+  // most at the details step; the review step needs the live form contents.
+  const [step, setStep] = useState(Math.min(Number(savedDraft.step) || 1, 2));
   const [serviceId, setServiceId] = useState(
     String(savedDraft.serviceId ?? ""),
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Step 2 stays mounted (only hidden) once it has been reached, so going back
+  // to step 1 never discards what the applicant already typed.
+  const [reachedDetails, setReachedDetails] = useState(step >= 2);
+  const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
+  const draftRestored = useRef(false);
   const navigate = useNavigate();
   const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (step >= 2) setReachedDetails(true);
+  }, [step]);
   useEffect(() => {
     request<Service[]>("/public/services")
       .then(setServices)
@@ -1460,7 +1594,17 @@ function NewApplication() {
       );
   }, []);
   useEffect(() => {
-    if (!formRef.current || !savedDraft.fields) return;
+    // Apply the saved draft once, after the fields exist; later step changes
+    // must never overwrite what the user is typing.
+    if (
+      draftRestored.current ||
+      !reachedDetails ||
+      !formRef.current ||
+      !savedDraft.fields
+    )
+      return;
+    if (!formRef.current.elements.namedItem("applicantCapacity")) return;
+    draftRestored.current = true;
     for (const element of Array.from(formRef.current.elements)) {
       if (!(
         element instanceof HTMLInputElement ||
@@ -1473,7 +1617,7 @@ function NewApplication() {
       const value = (savedDraft.fields as Record<string, unknown>)[element.name];
       if (typeof value === "string") element.value = value;
     }
-  }, [services.length, step]);
+  }, [services.length, step, reachedDetails]);
   useEffect(() => {
     const timer = window.setTimeout(() => saveDraft(), 0);
     return () => window.clearTimeout(timer);
@@ -1488,6 +1632,8 @@ function NewApplication() {
   }
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // Pressing Enter on an earlier step must not submit the application.
+    if (step !== 3) return;
     setBusy(true);
     setError("");
     const f = new FormData(e.currentTarget);
@@ -1584,14 +1730,21 @@ function NewApplication() {
           <h1>ثبت درخواست جدید</h1>
         </div>
       </div>
-      <div className="wizard-steps">
-        {["انتخاب خدمت", "اطلاعات ملک", "بازبینی و ثبت"].map((s, i) => (
-          <div className={step >= i + 1 ? "active" : ""} key={s}>
-            <b>{i + 1}</b>
-            <span>{s}</span>
-          </div>
+      <ol className="wizard-steps" aria-label="مراحل ثبت درخواست">
+        {["انتخاب خدمت", "اطلاعات ملک", "بازبینی و ثبت"].map((title, i) => (
+          <li
+            className={`${step >= i + 1 ? "active" : ""} ${step === i + 1 ? "current" : ""}`.trim()}
+            key={title}
+            aria-current={step === i + 1 ? "step" : undefined}
+            aria-label={`مرحله ${i + 1} از ۳: ${title}${
+              step === i + 1 ? " (مرحله جاری)" : step > i + 1 ? " (انجام شد)" : ""
+            }`}
+          >
+            <b aria-hidden="true">{i + 1}</b>
+            <span>{title}</span>
+          </li>
         ))}
-      </div>
+      </ol>
       {error && <Notice type="warning">{error}</Notice>}
       <form
         ref={formRef}
@@ -1641,7 +1794,7 @@ function NewApplication() {
             </div>
           </>
         )}
-        {step >= 2 && (
+        {reachedDetails && (
           <div className={step === 2 ? "" : "hidden-step"}>
             <h2>اطلاعات متقاضی و ملک</h2>
             <p>اطلاعات را دقیقاً مطابق سند و مدارک رسمی وارد کنید.</p>
@@ -1745,7 +1898,9 @@ function NewApplication() {
                 type="button"
                 className="button primary"
                 onClick={(event) => {
-                  if (event.currentTarget.form?.reportValidity()) {
+                  const form = event.currentTarget.form;
+                  if (form?.reportValidity()) {
+                    setReviewRows(summarizeApplicationForm(form));
                     setStep(3);
                     saveDraft(3);
                   }
@@ -1766,6 +1921,18 @@ function NewApplication() {
                 <strong>{selected?.title}</strong>
               </div>
             </div>
+            <p>
+              اطلاعات زیر همان چیزی است که ثبت می‌شود. در صورت اشتباه، با
+              «بازگشت و اصلاح» آن را ویرایش کنید.
+            </p>
+            <dl className="review-summary">
+              {reviewRows.map((row) => (
+                <div key={row.label}>
+                  <dt>{row.label}</dt>
+                  <dd>{row.value}</dd>
+                </div>
+              ))}
+            </dl>
             <label className="consent">
               <input type="checkbox" required />
               <span>
@@ -1943,6 +2110,8 @@ function ApplicationDetail() {
   }
   async function sendCaseMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // currentTarget is null after the first await: keep the form element.
+    const formElement = event.currentTarget;
     const values = new FormData(event.currentTarget);
     setBusy(true);
     try {
@@ -1955,7 +2124,7 @@ function ApplicationDetail() {
             Number(values.get("attachmentDocumentId")) || undefined,
         }),
       });
-      event.currentTarget.reset();
+      formElement.reset();
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "ارسال پیام ناموفق بود.");
@@ -2352,7 +2521,7 @@ function ApplicationDetail() {
                       <strong>{formatMoney(payment.amountRials)}</strong>
                       <small>{formatDate(payment.createdAt)}</small>
                     </span>
-                    <i className="status">{payment.status}</i>
+                    <i className="status">{fa(payment.status)}</i>
                     {payment.status === "successful" && (
                       <button
                         type="button"
@@ -2444,13 +2613,15 @@ function ComplaintsPage() {
     Record<number, File | null>
   >({});
   async function load() {
-    setItems(await request("/complaints"));
+    setItems(await requestAll<any>("/complaints"));
   }
   useEffect(() => {
     load().catch(() => undefined);
   }, []);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // currentTarget is null after the first await: keep the form element.
+    const formElement = e.currentTarget;
     const f = Object.fromEntries(new FormData(e.currentTarget));
     try {
       const r = await request<{ trackingCode: string }>("/complaints", {
@@ -2458,7 +2629,7 @@ function ComplaintsPage() {
         body: JSON.stringify(f),
       });
       setMessage(`شکایت ثبت شد. کد رهگیری: ${r.trackingCode}`);
-      e.currentTarget.reset();
+      formElement.reset();
       await load();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "ثبت شکایت ناموفق بود.");
@@ -2532,7 +2703,7 @@ function ComplaintsPage() {
                     <strong>{c.subject}</strong>
                     <small dir="ltr">{c.tracking_code}</small>
                   </div>
-                  <span className="status">{c.status}</span>
+                  <span className="status">{fa(c.status)}</span>
                   <p>{c.description}</p>
                   {c.response && <blockquote>{c.response}</blockquote>}
                   {c.status !== "closed" && (
@@ -2573,7 +2744,7 @@ function ComplaintsPage() {
 }
 
 function ProfilePage() {
-  const { user } = useAuth();
+  const { user, refresh: refreshAuth } = useAuth();
   const [profile, setProfile] = useState<any>(null);
   const [message, setMessage] = useState("");
   const [mfaSetup, setMfaSetup] = useState<{
@@ -2658,6 +2829,7 @@ function ProfilePage() {
         "احراز هویت دومرحله‌ای فعال شد. کدهای بازیابی را امن نگهداری کنید.",
       );
       await load();
+      await refreshAuth(); // lifts the admin "MFA setup required" restriction
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "فعال‌سازی ناموفق بود.",
@@ -2693,6 +2865,8 @@ function ProfilePage() {
       });
       form.reset();
       setMessage("رمز عبور با ثبت کامل سابقه تغییر کرد.");
+      // The "must change password" restriction is lifted server-side; sync it.
+      await refreshAuth();
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "تغییر رمز عبور ناموفق بود.",
@@ -3102,7 +3276,7 @@ function AdminDashboard() {
                       <span>{item.title}</span>
                       <small>{item.serviceCode}</small>
                       <b className={`status ${item.severity}`}>
-                        {item.resolvedAt ? "رفع‌شده" : item.severity}
+                        {item.resolvedAt ? "رفع‌شده" : fa(item.severity)}
                       </b>
                     </div>
                   ))
