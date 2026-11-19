@@ -28,6 +28,9 @@ import { consumeLimit, createCounterStore } from "../shared-limits.js";
 
 export const authRouter = Router();
 
+/** Raised when an OTP is consumed twice or belongs to a number that changed. */
+class StaleOtpError extends Error {}
+
 // Per-account budget in addition to the per-IP limiter, so credential stuffing
 // spread over many addresses still hits a ceiling for each identifier.
 const loginIdentifierStore = createCounterStore("login-id", 15 * 60_000);
@@ -110,7 +113,13 @@ authRouter.post("/register", async (req: AuthRequest, res, next) => {
     await issueSession(req, res, req.user);
     await audit(req, "auth.register", "user", String(userId));
     res.status(201).json({
-      user: { ...req.user, capabilities: capabilitiesForRole(req.user.role) },
+      user: {
+        ...req.user,
+        capabilities: capabilitiesForRole(req.user.role),
+        // Until the number is confirmed with a code, this session is limited
+        // to verifying it (enforced centrally in authenticate()).
+        mobileVerificationRequired: config.REQUIRE_MOBILE_OTP,
+      },
     });
   } catch (error) {
     next(error);
@@ -165,11 +174,6 @@ authRouter.post("/login", async (req: AuthRequest, res, next) => {
         message: "اطلاعات ورود صحیح نیست یا حساب موقتاً قفل شده است.",
       });
     }
-    if (config.REQUIRE_MOBILE_OTP && !user.mobile_verified_at)
-      return res.status(403).json({
-        message: "تأیید رسمی شماره همراه پیش از ورود الزامی است.",
-        mobileVerificationRequired: true,
-      });
     if (user.mfa_enabled) {
       const secret = decryptField(user.mfa_secret_encrypted);
       const recoveryHashes: string[] = user.mfa_recovery_codes
@@ -217,6 +221,21 @@ authRouter.post("/login", async (req: AuthRequest, res, next) => {
       name: user.full_name,
       mfaVerified: Boolean(user.mfa_enabled),
     };
+    if (config.REQUIRE_MOBILE_OTP && !user.mobile_verified_at) {
+      // Never lock an unverified account out: issue a session that is
+      // restricted to verifying the number. The MFA check above has already
+      // run, so this cannot be used to skip a second factor.
+      await issueSession(req, res, req.user);
+      await audit(req, "auth.login_mobile_unverified", "user", String(user.id));
+      res.json({
+        user: {
+          ...req.user,
+          capabilities: capabilitiesForRole(req.user.role),
+          mobileVerificationRequired: true,
+        },
+      });
+      return;
+    }
     await issueSession(req, res, req.user);
     await audit(req, "auth.login", "user", String(user.id));
     res.json({
@@ -252,6 +271,8 @@ authRouter.get("/me", authenticate, async (req: AuthRequest, res, next) => {
         user.role === "admin" &&
         !user.mfaEnabled,
       capabilities: capabilitiesForRole(user.role),
+      mobileVerificationRequired:
+        config.REQUIRE_MOBILE_OTP && !user.mobileVerifiedAt,
     });
   } catch (error) {
     next(error);
@@ -356,6 +377,12 @@ authRouter.patch("/me", authenticate, async (req: AuthRequest, res, next) => {
         req.user!.id,
       ],
     );
+    if (input.mobile && input.mobile !== existing?.mobile)
+      // Any code outstanding for the previous number must die with it.
+      await execute(
+        "UPDATE verification_otps SET expires_at=NOW() WHERE user_id=? AND verified_at IS NULL",
+        [req.user!.id],
+      );
     if (identifierChanged) await revokeUserSessions(req.user!.id, req.sessionId);
     await audit(req, "profile.update", "user", String(req.user!.id), {
       fields: Object.keys(input).filter((key) => key !== "currentPassword"),
@@ -438,10 +465,21 @@ authRouter.post(
         return res
           .status(429)
           .json({ message: "برای درخواست مجدد یک دقیقه صبر کنید." });
+      // Exactly one live challenge per account: a code issued for an earlier
+      // number (or an earlier request) can never be replayed onto this one.
+      await execute(
+        "UPDATE verification_otps SET expires_at=NOW() WHERE user_id=? AND verified_at IS NULL AND expires_at>NOW()",
+        [req.user!.id],
+      );
       const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
       const created = await execute(
         "INSERT INTO verification_otps (user_id,mobile,code_hash,expires_at) VALUES (?,?,?,DATE_ADD(NOW(),INTERVAL 5 MINUTE))",
-        [req.user!.id, user.mobile, blindIndex(`${req.user!.id}:${code}`)],
+        [
+          req.user!.id,
+          user.mobile,
+          // The hash is bound to the user AND the number it was sent to.
+          blindIndex(`${req.user!.id}:${user.mobile}:${code}`),
+        ],
       );
       otpId = created.insertId;
       await sendSms(user.mobile, `کد تأیید کارگزاری ثبتی: ${code}`);
@@ -477,13 +515,22 @@ authRouter.post(
       const input = z
         .object({ code: z.string().regex(/^\d{6}$/) })
         .parse(req.body);
+      const [account] = await rows<any[]>("SELECT mobile FROM users WHERE id=?", [
+        req.user!.id,
+      ]);
+      if (!account?.mobile)
+        return res.status(409).json({ message: "شماره همراه ثبت نشده است." });
+      // A challenge is only usable for the number it was issued to, so a code
+      // sent to a previously registered number can never verify a new one.
       const [otp] = await rows<any[]>(
-        "SELECT id,code_hash,attempts,expires_at FROM verification_otps WHERE user_id=? AND verified_at IS NULL ORDER BY id DESC LIMIT 1",
-        [req.user!.id],
+        "SELECT id,code_hash,attempts,expires_at,mobile FROM verification_otps WHERE user_id=? AND mobile=? AND verified_at IS NULL ORDER BY id DESC LIMIT 1",
+        [req.user!.id, account.mobile],
       );
       if (!otp || new Date(otp.expires_at) < new Date() || otp.attempts >= 5)
         return res.status(410).json({ message: "کد منقضی یا مسدود شده است." });
-      const expectedOtp = Buffer.from(blindIndex(`${req.user!.id}:${input.code}`));
+      const expectedOtp = Buffer.from(
+        blindIndex(`${req.user!.id}:${otp.mobile}:${input.code}`),
+      );
       const storedOtp = Buffer.from(String(otp.code_hash));
       if (
         expectedOtp.length !== storedOtp.length ||
@@ -501,16 +548,29 @@ authRouter.post(
         );
         return res.status(400).json({ message: "کد تأیید معتبر نیست." });
       }
-      await transaction(async (connection) => {
-        await connection.execute(
-          "UPDATE verification_otps SET verified_at=NOW() WHERE id=?",
-          [otp.id],
-        );
-        await connection.execute(
-          "UPDATE users SET mobile_verified_at=NOW() WHERE id=?",
-          [req.user!.id],
-        );
-      });
+      try {
+        await transaction(async (connection) => {
+          // Confirm the number and consume the challenge atomically: if the
+          // number changed since the code was sent, neither write survives.
+          const [updated] = await connection.execute<any>(
+            "UPDATE users SET mobile_verified_at=NOW() WHERE id=? AND mobile=?",
+            [req.user!.id, otp.mobile],
+          );
+          if (updated.affectedRows !== 1) throw new StaleOtpError();
+          const [consumed] = await connection.execute<any>(
+            "UPDATE verification_otps SET verified_at=NOW() WHERE id=? AND verified_at IS NULL",
+            [otp.id],
+          );
+          if (consumed.affectedRows !== 1) throw new StaleOtpError();
+        });
+      } catch (error) {
+        if (error instanceof StaleOtpError)
+          return res.status(409).json({
+            message:
+              "این کد دیگر معتبر نیست؛ برای شماره فعلی کد تازه درخواست کنید.",
+          });
+        throw error;
+      }
       await audit(req, "auth.mobile_verified", "user", String(req.user!.id));
       res.json({ verified: true });
     } catch (error) {

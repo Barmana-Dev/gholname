@@ -49,8 +49,8 @@ export function UserSupport() {
       requestAll<Ticket>("/operations/tickets"),
       requestAll<Notification>("/operations/notifications"),
     ]);
-    setTickets(t);
-    setNotifications(n);
+    setTickets(t.items);
+    setNotifications(n.items);
   }
   async function openTicket(id: number) {
     try {

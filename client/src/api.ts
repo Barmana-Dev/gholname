@@ -92,18 +92,33 @@ export async function requestPage<T>(
   };
 }
 
-/** Loads every page of a list (bounded), so counts and lists are complete. */
+export interface AllResult<T> {
+  items: T[];
+  /** True when the safety cap was reached while the server still had more. */
+  truncated: boolean;
+  /** The first page that was not loaded; pass as startPage to continue. */
+  nextPage: number;
+}
+
+/**
+ * Loads every page of a list up to a safety cap. The result says explicitly
+ * whether it is complete, so callers never present a truncated list (or the
+ * statistics derived from it) as the whole set. Continue with startPage.
+ */
 export async function requestAll<T>(
   path: string,
-  maxPages = 40,
-): Promise<T[]> {
+  options: { startPage?: number; maxPages?: number } = {},
+): Promise<AllResult<T>> {
+  const startPage = Math.max(1, Math.trunc(options.startPage ?? 1));
+  const maxPages = Math.max(1, Math.trunc(options.maxPages ?? 40));
   const all: T[] = [];
-  for (let page = 1; page <= maxPages; page += 1) {
+  let page = startPage;
+  for (let loaded = 0; loaded < maxPages; loaded += 1, page += 1) {
     const result = await requestPage<T>(path, page, 250);
     all.push(...result.items);
-    if (!result.hasMore) break;
+    if (!result.hasMore) return { items: all, truncated: false, nextPage: page + 1 };
   }
-  return all;
+  return { items: all, truncated: true, nextPage: page };
 }
 
 export async function downloadFile(

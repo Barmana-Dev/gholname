@@ -21,7 +21,11 @@ describe("requestPage / requestAll", () => {
     let call = 0;
     globalThis.fetch = (async () => respond(pages[call++] ?? [], 2)) as typeof fetch;
     const { requestAll } = await import("./api");
-    expect(await requestAll<number>("/x")).toEqual([1, 2, 3, 4, 5]);
+    expect(await requestAll<number>("/x")).toEqual({
+      items: [1, 2, 3, 4, 5],
+      truncated: false,
+      nextPage: 4,
+    });
     globalThis.fetch = original;
   });
 
@@ -32,8 +36,23 @@ describe("requestPage / requestAll", () => {
       return respond([1, 2, 3], null);
     }) as typeof fetch;
     const { requestAll } = await import("./api");
-    expect(await requestAll<number>("/x")).toEqual([1, 2, 3]);
+    expect(await requestAll<number>("/x")).toEqual({
+      items: [1, 2, 3],
+      truncated: false,
+      nextPage: 2,
+    });
     expect(calls).toBe(1);
+    globalThis.fetch = original;
+  });
+
+  it("flags a result cut off by the page cap instead of reporting it complete", async () => {
+    // 10,001 records with a 10,000-record cap: the last page is still full.
+    globalThis.fetch = (async () => respond([1, 2], 2)) as typeof fetch;
+    const { requestAll } = await import("./api");
+    const result = await requestAll<number>("/x", { maxPages: 2 });
+    expect(result.items).toEqual([1, 2, 1, 2]);
+    expect(result.truncated).toBe(true);
+    expect(result.nextPage).toBe(3);
     globalThis.fetch = original;
   });
 });

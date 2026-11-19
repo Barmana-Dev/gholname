@@ -97,8 +97,8 @@ export function StaffWorkspace() {
       requestAll<ApplicationItem>("/applications"),
       requestAll<Ticket>("/operations/tickets"),
     ]);
-    setApps(a);
-    setTickets(t);
+    setApps(a.items);
+    setTickets(t.items);
     if (
       ["support", "operations_manager", "compliance", "admin"].includes(
         user?.role ?? "",
@@ -110,14 +110,20 @@ export function StaffWorkspace() {
         user?.role ?? "",
       )
     )
-      setRefunds(await requestAll<RefundRequest>("/operations/refund-requests"));
+      setRefunds(
+        (await requestAll<RefundRequest>("/operations/refund-requests")).items,
+      );
     if (
       ["compliance", "operations_manager", "admin", "observer"].includes(
         user?.role ?? "",
       )
     )
       setPendingReviews(
-        await requestAll<PendingReview>("/operations/review-approvals/pending"),
+        (
+          await requestAll<PendingReview>(
+            "/operations/review-approvals/pending",
+          )
+        ).items,
       );
   }
   useEffect(() => {

@@ -198,6 +198,7 @@ interface AuthContextValue {
 interface MeResponse {
   mustChangePassword?: boolean;
   mfaSetupRequired?: boolean;
+  mobileVerificationRequired?: boolean;
   id: number;
   fullName: string;
   role: string;
@@ -220,6 +221,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
         capabilities: me.capabilities,
         mustChangePassword: me.mustChangePassword,
         mfaSetupRequired: me.mfaSetupRequired,
+        mobileVerificationRequired: me.mobileVerificationRequired,
       });
     } catch {
       setUser(null);
@@ -1102,9 +1104,13 @@ function Protected({
   if (loading) return <Loading />;
   if (!user) return <Navigate to="/login" replace />;
   // Accounts created by the bootstrap script must replace the temporary
-  // password before anything else is available.
+  // password before anything else is available, and an account whose mobile
+  // number is not yet confirmed may only reach the verification page (the
+  // server restricts the same session centrally).
   if (
-    (user.mustChangePassword || user.mfaSetupRequired) &&
+    (user.mustChangePassword ||
+      user.mfaSetupRequired ||
+      user.mobileVerificationRequired) &&
     location.pathname !== "/panel/profile"
   )
     return <Navigate to="/panel/profile" replace />;
@@ -1118,6 +1124,9 @@ export function PanelLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
@@ -1139,14 +1148,61 @@ export function PanelLayout({ children }: { children: ReactNode }) {
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, []);
+  // On mobile the drawer is a modal surface: focus moves into it, Tab and
+  // Shift+Tab cycle inside it, the page behind it becomes inert, and Escape
+  // closes it while returning focus to the control that opened it.
+  const drawerOpen = mobile && open;
   useEffect(() => {
-    if (!open) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+    if (!drawerOpen) return;
+    const drawer = sidebarRef.current;
+    if (!drawer) return;
+    // Kept in a non-nullable const: the narrowing above does not survive the
+    // event-handler closure.
+    const sidebar: HTMLElement = drawer;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusable = () =>
+      Array.from(
+        sidebar.querySelectorAll<HTMLElement>(
+          'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+        ),
+      );
+    focusable()[0]?.focus();
+    const main = mainRef.current;
+    main?.setAttribute("inert", "");
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) return;
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const active = document.activeElement;
+      const inside = active instanceof Node && sidebar.contains(active);
+      if (event.shiftKey && (!inside || active === first)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (!inside || active === last)) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      main?.removeAttribute("inert");
+      const target =
+        previouslyFocused &&
+        previouslyFocused !== document.body &&
+        document.contains(previouslyFocused)
+          ? previouslyFocused
+          : menuButtonRef.current;
+      target?.focus();
     };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [open]);
+  }, [drawerOpen]);
   // What assistive technology is told must equal what is actually shown.
   const sidebarExpanded = mobile ? open : !collapsed;
   function toggleSidebar() {
@@ -1185,6 +1241,7 @@ export function PanelLayout({ children }: { children: ReactNode }) {
     <div className={collapsed ? "panel-shell sidebar-collapsed" : "panel-shell"}>
       <aside
         id="panel-sidebar"
+        ref={sidebarRef}
         className={open ? "panel-sidebar open" : "panel-sidebar"}
       >
         <Logo light className="panel-brand" />
@@ -1219,10 +1276,11 @@ export function PanelLayout({ children }: { children: ReactNode }) {
           <LogOut /> <span className="nav-label">خروج امن</span>
         </button>
       </aside>
-      <div className="panel-main">
+      <div className="panel-main" ref={mainRef}>
         <div className="panel-top">
           <button
             type="button"
+            ref={menuButtonRef}
             className="menu-button"
             onClick={toggleSidebar}
             aria-controls="panel-sidebar"
@@ -1268,6 +1326,7 @@ export function PanelLayout({ children }: { children: ReactNode }) {
       {open && (
         <button
           aria-label="بستن منو"
+          tabIndex={-1}
           className="sidebar-overlay"
           onClick={() => setOpen(false)}
         />
@@ -1281,10 +1340,17 @@ function PanelHome() {
   const [items, setItems] = useState<ApplicationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [truncated, setTruncated] = useState(false);
+  const [nextPage, setNextPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
   useEffect(() => {
     // Statistics must be computed from ALL records, not only the first page.
     requestAll<ApplicationItem>("/applications")
-      .then(setItems)
+      .then((result) => {
+        setItems(result.items);
+        setTruncated(result.truncated);
+        setNextPage(result.nextPage);
+      })
       .catch((requestError) =>
         setError(
           requestError instanceof Error
@@ -1294,6 +1360,32 @@ function PanelHome() {
       )
       .finally(() => setLoading(false));
   }, []);
+  async function loadMore() {
+    setLoadingMore(true);
+    setError("");
+    try {
+      const result = await requestAll<ApplicationItem>("/applications", {
+        startPage: nextPage,
+      });
+      setItems((current) => {
+        const seen = new Set(current.map((item) => item.id));
+        return [
+          ...current,
+          ...result.items.filter((item) => !seen.has(item.id)),
+        ];
+      });
+      setTruncated(result.truncated);
+      setNextPage(result.nextPage);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "دریافت ادامه پرونده‌ها ناموفق بود.",
+      );
+    } finally {
+      setLoadingMore(false);
+    }
+  }
   return (
     <PanelLayout>
       <div className="panel-title">
@@ -1312,6 +1404,22 @@ function PanelHome() {
         نهایی در اختیار مرجع ثبتی است.
       </Notice>
       {error && <Notice type="warning">{error}</Notice>}
+      {truncated && (
+        <Notice type="warning">
+          <p>
+            شمار پرونده‌ها از سقف دریافت یک‌باره بیشتر است؛ آمار و فهرست زیر
+            کامل نیست.
+          </p>
+          <button
+            type="button"
+            className="button subtle"
+            disabled={loadingMore}
+            onClick={loadMore}
+          >
+            {loadingMore ? "در حال دریافت…" : "دریافت ادامه پرونده‌ها"}
+          </button>
+        </Notice>
+      )}
       <div className="stats">
         <Stat
           icon={<FolderClock />}
@@ -1428,18 +1536,23 @@ function ApplicationsPage() {
   const [hasMore, setHasMore] = useState(false);
   const [nextPage, setNextPage] = useState(1);
   const [error, setError] = useState("");
+  // A failure to load more is kept separate: it must never replace the rows
+  // that were already loaded with a full-page error.
+  const [pageError, setPageError] = useState("");
   async function loadPage(page: number) {
     try {
       const result = await requestPage<ApplicationItem>("/applications", page, 50);
       setItems((current) => (page === 1 ? result.items : [...current, ...result.items]));
       setHasMore(result.hasMore);
       setNextPage(page + 1);
+      setPageError("");
     } catch (requestError) {
-      setError(
+      const message =
         requestError instanceof Error
           ? requestError.message
-          : "دریافت پرونده‌ها ناموفق بود.",
-      );
+          : "دریافت پرونده‌ها ناموفق بود.";
+      if (page === 1) setError(message);
+      else setPageError(message);
     }
   }
   useEffect(() => {
@@ -1466,6 +1579,7 @@ function ApplicationsPage() {
         ) : items.length ? (
           <>
             <ApplicationTable items={items} />
+            {pageError && <Notice type="warning">{pageError}</Notice>}
             {hasMore && (
               <div className="wizard-actions">
                 <button
@@ -1478,7 +1592,11 @@ function ApplicationsPage() {
                     setLoadingMore(false);
                   }}
                 >
-                  {loadingMore ? "در حال دریافت…" : "نمایش پرونده‌های قدیمی‌تر"}
+                  {loadingMore
+                    ? "در حال دریافت…"
+                    : pageError
+                      ? "تلاش مجدد برای دریافت ادامه"
+                      : "نمایش پرونده‌های قدیمی‌تر"}
                 </button>
               </div>
             )}
@@ -1504,6 +1622,60 @@ const structuredReviewLabels: Record<string, string> = {
   partiesJson: "مالکان / ذی‌نفعان",
   subdivisionUnitsJson: "قطعات و واحدها",
 };
+
+const partyTypeLabels: Record<string, string> = {
+  owner: "مالک",
+  beneficiary: "ذی‌نفع",
+  attorney: "وکیل",
+  claimant: "ادعاکننده",
+  related_party: "شخص مرتبط",
+};
+
+/**
+ * Expands one repeatable collection (parties, plates, units) into individual
+ * review rows, so the applicant sees every name, plate and unit in full
+ * instead of a bare "N recorded" count.
+ */
+function structuredReviewRows(name: string, raw: string): ReviewRow[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw || "[]");
+  } catch {
+    parsed = [];
+  }
+  const items = Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>[])
+    : [];
+  const text = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value.trim() : "";
+  return items.map((item, index) => {
+    const parts: string[] = [];
+    let label = "";
+    if (name === "partiesJson") {
+      label = `شخص ${index + 1} (${partyTypeLabels[String(item.partyType)] ?? "شخص"})`;
+      if (text(item.fullName)) parts.push(`نام: ${text(item.fullName)}`);
+      if (text(item.nationalId)) parts.push(`کد ملی: ${text(item.nationalId)}`);
+      if (text(item.shareDescription))
+        parts.push(`سهم یا سمت: ${text(item.shareDescription)}`);
+    } else if (name === "relatedPropertiesJson") {
+      label = `ملک ${index + 1}`;
+      if (text(item.mainPlate)) parts.push(`پلاک اصلی: ${text(item.mainPlate)}`);
+      if (text(item.subPlate)) parts.push(`پلاک فرعی: ${text(item.subPlate)}`);
+      if (text(item.parcel)) parts.push(`قطعه: ${text(item.parcel)}`);
+      if (text(item.area)) parts.push(`مساحت: ${text(item.area)}`);
+    } else {
+      label = `واحد یا قطعه ${index + 1}`;
+      if (text(item.identifier)) parts.push(`شناسه: ${text(item.identifier)}`);
+      if (text(item.floor)) parts.push(`طبقه: ${text(item.floor)}`);
+      if (text(item.useType)) parts.push(`کاربری: ${text(item.useType)}`);
+      if (text(item.area)) parts.push(`مساحت: ${text(item.area)}`);
+    }
+    return {
+      label,
+      value: parts.length ? parts.join("، ") : "تکمیل نشده",
+    };
+  });
+}
 
 /**
  * Builds a human-readable summary of everything the applicant entered, straight
@@ -1539,12 +1711,8 @@ function summarizeApplicationForm(form: HTMLFormElement): ReviewRow[] {
       value = element.checked ? "تأیید شد" : "";
     } else if (element instanceof HTMLInputElement && element.type === "hidden") {
       if (name in structuredReviewLabels) {
-        try {
-          const items = JSON.parse(element.value || "[]");
-          value = Array.isArray(items) && items.length ? `${items.length} مورد ثبت شده` : "";
-        } catch {
-          value = "";
-        }
+        rows.push(...structuredReviewRows(name, element.value));
+        continue;
       } else {
         // Hidden machine value (for example an ISO date): show the visible text
         // the user actually typed instead.
@@ -1926,8 +2094,8 @@ function NewApplication() {
               «بازگشت و اصلاح» آن را ویرایش کنید.
             </p>
             <dl className="review-summary">
-              {reviewRows.map((row) => (
-                <div key={row.label}>
+              {reviewRows.map((row, index) => (
+                <div key={`${row.label}-${index}`}>
                   <dt>{row.label}</dt>
                   <dd>{row.value}</dd>
                 </div>
@@ -2613,7 +2781,8 @@ function ComplaintsPage() {
     Record<number, File | null>
   >({});
   async function load() {
-    setItems(await requestAll<any>("/complaints"));
+    const { items: complaints } = await requestAll<any>("/complaints");
+    setItems(complaints);
   }
   useEffect(() => {
     load().catch(() => undefined);
@@ -2806,6 +2975,8 @@ function ProfilePage() {
       });
       setMessage("شماره همراه با OTP رسمی تأیید شد.");
       await load();
+      // Lifts the account-level restriction once the number is confirmed.
+      await refreshAuth();
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "تأیید کد ناموفق بود.",

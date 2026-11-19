@@ -242,7 +242,7 @@ export async function authenticate(
     let current;
     try {
       [current] = await rows<any[]>(
-        "SELECT u.status,u.full_name name,u.must_change_password mustChange,u.mfa_enabled mfaEnabled,r.code role,s.revoked_at revokedAt,s.expires_at sessionExpiresAt FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN user_sessions s ON s.jti=? AND s.user_id=u.id WHERE u.id=? LIMIT 1",
+        "SELECT u.status,u.full_name name,u.must_change_password mustChange,u.mfa_enabled mfaEnabled,u.mobile_verified_at mobileVerifiedAt,r.code role,s.revoked_at revokedAt,s.expires_at sessionExpiresAt FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN user_sessions s ON s.jti=? AND s.user_id=u.id WHERE u.id=? LIMIT 1",
         [verified.jti, verified.id],
       );
     } catch {
@@ -272,6 +272,28 @@ export async function authenticate(
       res.status(403).json({
         message: "پیش از ادامه باید رمز عبور موقت خود را تغییر دهید.",
         mustChangePassword: true,
+      });
+      return;
+    }
+    // A session issued before the mobile number was verified is deliberately
+    // restricted (see the register/login routes): it may only read its own
+    // profile, verify the number, or sign out. Checking here, once, covers
+    // every protected route instead of relying on each handler.
+    const mobileVerificationAllowed = [
+      "/api/auth/me",
+      "/api/auth/mobile-otp/request",
+      "/api/auth/mobile-otp/verify",
+      "/api/auth/logout",
+    ];
+    if (
+      config.REQUIRE_MOBILE_OTP &&
+      !current.mobileVerifiedAt &&
+      !mobileVerificationAllowed.includes(requestPath(req))
+    ) {
+      res.status(403).json({
+        message:
+          "پیش از استفاده از سامانه باید شماره همراه خود را با کد پیامکی تأیید کنید.",
+        mobileVerificationRequired: true,
       });
       return;
     }

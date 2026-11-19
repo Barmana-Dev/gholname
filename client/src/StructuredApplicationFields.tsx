@@ -146,6 +146,8 @@ export function StructuredApplicationFields({ code }: { code?: string }) {
           {parties.map((party, index) => (
             <div className="structured-row party-row" key={index}>
               <select
+                id={`party-role-${index}`}
+                aria-label={`نقش شخص ${index + 1}`}
                 value={party.partyType}
                 onChange={(event) =>
                   setParties((items) =>
@@ -165,6 +167,7 @@ export function StructuredApplicationFields({ code }: { code?: string }) {
               </select>
               <input
                 required
+                aria-label={`نام کامل شخص ${index + 1}`}
                 placeholder="نام کامل"
                 value={party.fullName}
                 onChange={(event) =>
@@ -179,6 +182,7 @@ export function StructuredApplicationFields({ code }: { code?: string }) {
               />
               <input
                 inputMode="numeric"
+                aria-label={`کد ملی شخص ${index + 1}`}
                 placeholder="کد ملی"
                 value={party.nationalId}
                 onChange={(event) =>
@@ -192,6 +196,7 @@ export function StructuredApplicationFields({ code }: { code?: string }) {
                 }
               />
               <input
+                aria-label={`سهم یا سمت شخص ${index + 1}`}
                 placeholder="سهم یا سمت"
                 value={party.shareDescription}
                 onChange={(event) =>
@@ -207,6 +212,7 @@ export function StructuredApplicationFields({ code }: { code?: string }) {
               <button
                 type="button"
                 className="remove-row"
+                aria-label={`حذف شخص ${index + 1}`}
                 onClick={() =>
                   setParties((items) =>
                     items.filter((_, itemIndex) => itemIndex !== index),
