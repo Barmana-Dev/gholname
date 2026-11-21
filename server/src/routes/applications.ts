@@ -913,16 +913,23 @@ applicationsRouter.post(
       }
       const hash = cdr.sha256;
       const originalName = normalizeOriginalFilename(req.file.originalname);
-      const [latest] = await rows<any[]>(
-        "SELECT MAX(version) version FROM documents WHERE application_id=? AND document_type=?",
-        [req.params.id, documentType],
-      );
-      const version = (latest?.version ?? 0) + 1;
-      const result = await transaction(async (connection) => {
+      const { result, version } = await transaction(async (connection) => {
+        // Serialize uploads of one application: MAX(version) read outside a
+        // transaction let two concurrent uploads claim the same version, so
+        // the "new version" invariant (and the audit trail) was wrong.
+        await connection.execute(
+          "SELECT id FROM applications WHERE id=? FOR UPDATE",
+          [String(req.params.id)],
+        );
+        const [latest] = await connection.execute<any[]>(
+          "SELECT MAX(version) version FROM documents WHERE application_id=? AND document_type=?",
+          [String(req.params.id), documentType],
+        );
+        const nextVersion = Number(latest[0]?.version ?? 0) + 1;
         const [created] = await connection.execute<any>(
           "INSERT INTO documents (application_id,document_type,original_name,storage_name,mime_type,size_bytes,sha256,original_sha256,version,sensitivity,uploaded_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
           [
-            req.params.id,
+            String(req.params.id),
             documentType,
             originalName,
             req.file!.filename,
@@ -930,12 +937,12 @@ applicationsRouter.post(
             cdr.sizeBytes,
             hash,
             cdr.originalSha256,
-            version,
+            nextVersion,
             sensitivity,
             req.user!.id,
           ],
         );
-        const confirmation = `دریافت مدرک «${documentType}» نسخه ${version} با موفقیت ثبت شد.`;
+        const confirmation = `دریافت مدرک «${documentType}» نسخه ${nextVersion} با موفقیت ثبت شد.`;
         await connection.execute(
           "INSERT INTO messages (application_id,sender_id,recipient_id,message_type,body,attachment_document_id) VALUES (?,?,?,?,?,?)",
           [
@@ -959,7 +966,7 @@ applicationsRouter.post(
               confirmation,
             ],
           );
-        return created;
+        return { result: created, version: nextVersion };
       });
       await audit(req, "document.upload", "document", String(result.insertId), {
         applicationId: req.params.id,
@@ -1190,7 +1197,9 @@ applicationsRouter.patch(
       const status = String(req.body.status ?? "");
       const reason = String(req.body.reason ?? "").trim();
       const note = String(req.body.note ?? "").trim();
-      if (!allowed.has(status) || reason.length < 5)
+      // status_history.reason is VARCHAR(255): an unbounded reason reached
+      // MySQL and failed the whole request with a 500 instead of a 400.
+      if (!allowed.has(status) || reason.length < 5 || reason.length > 255)
         return res
           .status(400)
           .json({ message: "وضعیت یا دلیل تغییر معتبر نیست." });

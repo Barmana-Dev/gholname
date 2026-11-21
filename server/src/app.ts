@@ -105,6 +105,10 @@ app.use(
     credentials: true,
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "X-CSRF-Token"],
+    // The client reads the applied page size from X-Page-Size to decide
+    // whether more rows exist. Without exposing it, a cross-origin client can
+    // never see the header and silently treats page 1 as the complete list.
+    exposedHeaders: ["X-Page", "X-Page-Size", "X-Request-Id"],
   }),
 );
 app.use(globalRequestLimiter);

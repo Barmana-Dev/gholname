@@ -8,8 +8,13 @@ bash -n database/setup-xampp.sh database/migrate.sh database/validate-schema.sh 
   database/backup.sh database/restore.sh
 
 schema_table_count="$(grep -c '^CREATE TABLE' database/schema.sql)"
-if [[ "$schema_table_count" != "42" ]]; then
-  printf 'database check failed: schema.sql has %s CREATE TABLE statements; expected 42\n' "$schema_table_count" >&2
+# The canonical schema grew past the original 42 tables (45 today). Pin a floor
+# instead of an exact number: the check must catch a truncated schema file, not
+# fail every time a legitimate table (or migration) is added.
+MIN_SCHEMA_TABLES=42
+if [[ "$schema_table_count" -lt "$MIN_SCHEMA_TABLES" ]]; then
+  printf 'database check failed: schema.sql has %s CREATE TABLE statements; expected at least %s\n' \
+    "$schema_table_count" "$MIN_SCHEMA_TABLES" >&2
   exit 1
 fi
 
@@ -45,5 +50,5 @@ if ! grep -q 'database/validate-schema.sh' database/setup-xampp.sh; then
   exit 1
 fi
 
-printf 'database static checks passed: %s schema tables, %s migrations\n' \
-  "$schema_table_count" "${#migration_files[@]}"
+printf 'database static checks passed: %s schema tables (>= %s), %s migrations\n' \
+  "$schema_table_count" "$MIN_SCHEMA_TABLES" "${#migration_files[@]}"

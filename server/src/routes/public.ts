@@ -11,6 +11,23 @@ import {
   trackingFileNumberPattern,
 } from "../tracking.js";
 
+/**
+ * requirements/workflow are JSON columns. A malformed or NULL value used to
+ * throw inside the handler (500 for the whole list) or reach the client as
+ * something other than an array (`service.requirements.map` then crashed the
+ * page), so every read goes through this guard.
+ */
+function jsonArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export const publicRouter = Router();
 const publicTrackingLimiter = createRateLimiter({
   windowMs: 15 * 60_000,
@@ -65,14 +82,8 @@ publicRouter.get("/services", async (_req, res, next) => {
         const servicePolicy = page04ServiceRules[service.code];
         return {
           ...service,
-          requirements:
-            typeof service.requirements === "string"
-              ? JSON.parse(service.requirements)
-              : service.requirements,
-          workflow:
-            typeof service.workflow === "string"
-              ? JSON.parse(service.workflow)
-              : service.workflow,
+          requirements: jsonArray(service.requirements),
+          workflow: jsonArray(service.workflow),
           servicePolicy: servicePolicy
             ? {
                 documentTypes: servicePolicy.documentTypes,
@@ -94,10 +105,8 @@ publicRouter.get("/services/:code", async (req, res, next) => {
       [req.params.code],
     );
     if (!service) return res.status(404).json({ message: "خدمت پیدا نشد." });
-    for (const key of ["requirements", "workflow"]) {
-      if (typeof service[key] === "string")
-        service[key] = JSON.parse(service[key]);
-    }
+    service.requirements = jsonArray(service.requirements);
+    service.workflow = jsonArray(service.workflow);
     const rule = page04ServiceRules[service.code];
     service.servicePolicy = rule
       ? {

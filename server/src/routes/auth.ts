@@ -296,21 +296,23 @@ authRouter.post(
 
 authRouter.patch("/me", authenticate, async (req: AuthRequest, res, next) => {
   try {
+    // A plain profile form always submits every field, so an account without
+    // an email or mobile number sends "". Treat blank as "not supplied"
+    // instead of rejecting the whole save with a 400 for an optional field.
+    const blankAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+      z.preprocess(
+        (value) =>
+          typeof value === "string" && value.trim() === "" ? undefined : value,
+        schema.optional(),
+      );
     const input = z
       .object({
-        fullName: z.string().trim().min(3).max(150).optional(),
-        email: z.string().email().max(190).optional(),
-        mobile: z
-          .string()
-          .regex(/^09\d{9}$/)
-          .optional(),
-        organizationName: z
-          .string()
-          .trim()
-          .min(3)
-          .max(190)
-          .nullable()
-          .optional(),
+        fullName: blankAsUndefined(z.string().trim().min(3).max(150)),
+        email: blankAsUndefined(z.string().email().max(190)),
+        mobile: blankAsUndefined(z.string().regex(/^09\d{9}$/)),
+        organizationName: blankAsUndefined(
+          z.string().trim().min(3).max(190).nullable(),
+        ),
         currentPassword: z.string().max(128).optional(),
       })
       .refine(

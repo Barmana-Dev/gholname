@@ -914,6 +914,17 @@ adminRouter.patch(
         : [null];
       if (input.role && !role)
         return res.status(400).json({ message: "نقش معتبر نیست." });
+      // An administrator must not demote or suspend their own account: it
+      // takes effect immediately (all sessions are revoked) and can leave the
+      // installation without any active administrator.
+      if (
+        Number(req.params.id) === req.user!.id &&
+        (input.role !== undefined || input.status === "suspended")
+      )
+        return res.status(409).json({
+          message:
+            "تغییر نقش یا تعلیق حساب خود مدیر مجاز نیست؛ این تغییر را مدیر دیگری انجام دهد.",
+        });
       if (input.role) {
         const [target] = await rows<any[]>(
           "SELECT r.code role FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?",
@@ -1087,7 +1098,27 @@ adminRouter.patch(
           requirementsVersion: z.string().trim().min(1).max(30).optional(),
           apiCode: z.string().trim().max(80).nullable().optional(),
           apiPayloadFields: z
-            .array(z.string().regex(/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/))
+            .array(
+              z
+                .string()
+                .regex(/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/)
+                // Same guard as service creation: a payload path containing
+                // __proto__/constructor/prototype would be copied into the
+                // outbound JSON by writePath() and could tamper with the
+                // object prototype instead of adding a data field.
+                .refine(
+                  (value) =>
+                    value
+                      .split(".")
+                      .every(
+                        (segment) =>
+                          !["__proto__", "constructor", "prototype"].includes(
+                            segment,
+                          ),
+                      ),
+                  "فیلدهای payload مجاز نیستند.",
+                ),
+            )
             .max(100)
             .optional(),
           title: z.string().trim().min(3).max(180).optional(),

@@ -1,3 +1,7 @@
+-- Otherwise this migration runs against whatever database the client has
+-- selected (usually none) and fails, unlike every other migration file.
+USE regbroker;
+
 ALTER TABLE messages
   MODIFY COLUMN message_type ENUM(
     'system',

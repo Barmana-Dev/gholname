@@ -17,5 +17,12 @@ REG_REPORT="$REG_REPORT_DIR/scan-${REG_STAMP}.log"
   rg -n --hidden -g '!node_modules/**' -g '!dist/**' "(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|api[_-]?key\\s*[:=]\\s*[\"'][^\"']{16,})" . && exit 1 || true
 } > "$REG_REPORT" 2>&1
 
-shasum -a 256 "$REG_REPORT" > "${REG_REPORT}.sha256"
+# Portable checksum: sha256sum exists on Linux, shasum on macOS; Git Bash on
+# Windows ships sha256sum. The old unconditional `shasum` call aborted the scan
+# on hosts where only sha256sum is available.
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum "$REG_REPORT" > "${REG_REPORT}.sha256"
+else
+  shasum -a 256 "$REG_REPORT" > "${REG_REPORT}.sha256"
+fi
 printf '%s\n' "$REG_REPORT"

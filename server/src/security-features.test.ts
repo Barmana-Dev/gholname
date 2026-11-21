@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   blindIndex,
@@ -78,10 +79,16 @@ describe("security features", () => {
       "filename*=UTF-8''",
     );
     expect(contentDispositionFilename("مدرک\r\n.pdf")).not.toContain("\r");
-    expect(safeStoragePath("/tmp/regbroker-uploads", "abc.pdf")).toBe(
-      "/tmp/regbroker-uploads/abc.pdf",
+    // path.resolve() is host-specific (E:\\tmp\\... on Windows), so the
+    // expected value is derived the same way instead of hard-coding a POSIX
+    // path; the security property being asserted is unchanged.
+    const uploadRoot = path.resolve("/tmp/regbroker-uploads");
+    expect(safeStoragePath(uploadRoot, "abc.pdf")).toBe(
+      path.join(uploadRoot, "abc.pdf"),
     );
-    expect(safeStoragePath("/tmp/regbroker-uploads", "../secret")).toBeNull();
+    expect(safeStoragePath(uploadRoot, "../secret")).toBeNull();
+    // Windows separators must not escape the root either.
+    expect(safeStoragePath(uploadRoot, "..\\secret")).toBeNull();
   });
 
   it("accepts phone-only public auth payloads", () => {

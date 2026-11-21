@@ -1144,11 +1144,28 @@ operationsRouter.patch(
           note: z.string().trim().min(5).max(2000),
         })
         .parse(req.body);
-      const result = await execute(
-        "UPDATE refund_requests SET status=?,decided_by=?,decision_note=?,decided_at=NOW() WHERE id=? AND status='pending'",
-        [input.decision, req.user!.id, input.note, req.params.id],
-      );
-      if (!result.affectedRows)
+      const decided = await transaction(async (connection) => {
+        const [requests] = await connection.execute<any[]>(
+          "SELECT payment_id FROM refund_requests WHERE id=? AND status='pending' FOR UPDATE",
+          [String(req.params.id)],
+        );
+        const request = requests[0];
+        if (!request) return null;
+        await connection.execute(
+          "UPDATE refund_requests SET status=?,decided_by=?,decision_note=?,decided_at=NOW() WHERE id=? AND status='pending'",
+          [input.decision, req.user!.id, input.note, String(req.params.id)],
+        );
+        // An approved refund must leave the payment ledger consistent: the
+        // dashboard, financial report and receipt all read payments.status,
+        // which previously stayed 'successful' forever after a refund.
+        if (input.decision === "approved")
+          await connection.execute(
+            "UPDATE payments SET status='refunded' WHERE id=? AND status='successful'",
+            [request.payment_id],
+          );
+        return request;
+      });
+      if (!decided)
         return res
           .status(404)
           .json({ message: "درخواست استرداد باز پیدا نشد." });

@@ -11,6 +11,18 @@ dotenv.config({ path: path.resolve(moduleDirectory, "../../.env") });
 dotenv.config({ path: path.resolve(moduleDirectory, "../.env") });
 dotenv.config();
 
+/**
+ * Test runners (and some container bases) export PORT=0 to ask for "any free
+ * port". This API serves a fixed documented port, so an empty or zero PORT
+ * must fall back to the default instead of aborting every module import with a
+ * ZodError (vitest sets PORT=0, which made the whole server test suite fail).
+ */
+const portNumber = z.preprocess(
+  (value) =>
+    value === "" || value === "0" || value === 0 ? undefined : value,
+  z.coerce.number().int().min(1).max(65535).default(4000),
+);
+
 const envBoolean = z.preprocess((value) => {
   if (typeof value !== "string") return value;
   const normalized = value.trim().toLowerCase();
@@ -28,7 +40,7 @@ const schema = z
     // X-Forwarded-* headers. Keeping this false by default prevents client IP
     // spoofing from weakening rate limits and audit trails.
     TRUST_PROXY: envBoolean.default(false),
-    PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+    PORT: portNumber,
     CLIENT_ORIGIN: z.string().url().default("http://localhost:5173"),
     DB_HOST: z.string().default("127.0.0.1"),
     DB_PORT: z.coerce.number().int().default(3306),

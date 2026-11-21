@@ -1542,7 +1542,17 @@ function ApplicationsPage() {
   async function loadPage(page: number) {
     try {
       const result = await requestPage<ApplicationItem>("/applications", page, 50);
-      setItems((current) => (page === 1 ? result.items : [...current, ...result.items]));
+      // Offset pagination can repeat a row when a newer application shifts the
+      // window between requests; without de-duplication React sees duplicate
+      // keys and the list (and its counts) double-counts that case.
+      setItems((current) => {
+        if (page === 1) return result.items;
+        const seen = new Set(current.map((item) => item.id));
+        return [
+          ...current,
+          ...result.items.filter((item) => !seen.has(item.id)),
+        ];
+      });
       setHasMore(result.hasMore);
       setNextPage(page + 1);
       setPageError("");
