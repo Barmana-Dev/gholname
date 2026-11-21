@@ -1917,48 +1917,49 @@ td:first-child {
   display: none;
 }
 
-/* At and below 1050px the inline desktop navigation becomes a slide-down
-   menu and the hamburger appears. These rules must stay inside the media
-   query: as top-level rules they hid the navigation and forced the
-   hamburger at every width. */
+/* The public header always shows the hamburger and the slide-down menu, at
+   every width, so the header behaves the same on all public pages. The nav
+   stays hidden until the hamburger toggles `.open` in App.tsx. */
+.site-header .main-nav {
+  display: none;
+  position: absolute;
+  top: 82px;
+  right: 0;
+  left: 0;
+  max-height: calc(100vh - 116px);
+  overflow-y: auto;
+  background: #fff;
+  padding: 18px max(20px, calc((100vw - 1180px) / 2));
+  flex-direction: column;
+  align-items: stretch;
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.08);
+}
+.site-header .main-nav.open {
+  display: flex;
+}
+.site-header .main-nav > a,
+.site-header .main-nav .nav-group > summary {
+  padding: 9px 8px;
+}
+.site-header .main-nav a.active:after {
+  display: none;
+}
+.site-header .main-nav .nav-group > summary {
+  justify-content: space-between;
+}
+.site-header .main-nav .nav-submenu {
+  position: static;
+  width: auto;
+  margin: 4px 10px 10px;
+  border-radius: 10px;
+  box-shadow: none;
+  background: #f6f9f8;
+}
+.site-header .menu-button {
+  display: grid;
+}
+
 @media (max-width: 1050px) {
-  .main-nav {
-    display: none;
-    position: absolute;
-    top: 82px;
-    right: 0;
-    left: 0;
-    max-height: calc(100vh - 116px);
-    overflow-y: auto;
-    background: #fff;
-    padding: 18px max(20px, calc((100vw - 1180px) / 2));
-    flex-direction: column;
-    align-items: stretch;
-    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.08);
-  }
-  .main-nav.open {
-    display: flex;
-  }
-  .main-nav a {
-    padding: 9px;
-  }
-  .main-nav a.active:after {
-    display: none;
-  }
-  .nav-group summary {
-    justify-content: space-between;
-  }
-  .nav-submenu {
-    position: static;
-    width: auto;
-    margin: 4px 10px 10px;
-    border-radius: 10px;
-    box-shadow: none;
-    background: #f6f9f8;
-  }
-  .menu-button {
-    display: grid;
-  }
   .hero-grid {
     gap: 35px;
   }
@@ -2000,6 +2001,7 @@ td:first-child {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
 @media (max-width: 720px) {
   .container {
     width: min(100% - 24px, 1180px);
@@ -2020,7 +2022,7 @@ td:first-child {
   .header-actions > .button {
     display: none;
   }
-  .main-nav {
+  .site-header .main-nav {
     top: 68px;
   }
   .hero {
