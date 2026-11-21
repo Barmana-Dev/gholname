@@ -37,9 +37,9 @@
 | فایل‌های تست کلاینت | ۱۳ |
 | فایل‌های Database (schema + مایگریشن + seed + ابزار) | ۲۷ |
 | اسکریپت‌ها و پیکربندی (`.env.example`, `package.json`×۲, `scripts/`×۲) | ۵ |
-| مشکلات یافت‌شده | **۱۷** |
-| مشکلات اصلاح‌شده در کد | **۱۷ (۱۰۰٪)** |
-| موارد نیازمند بررسی دستی / تصمیم محصولی | ۷ |
+| مشکلات یافت‌شده | **۲۱** |
+| مشکلات اصلاح‌شده در کد | **۲۱ (۱۰۰٪)** |
+| موارد نیازمند بررسی دستی / تصمیم محصولی | ۸ |
 | تست‌های سرور (پس از اصلاح) | ۱۰۷ تست در ۲۰ فایل — **همه PASS** |
 | تست‌های کلاینت (پس از اصلاح) | ۳۳ تست در ۱۳ فایل — **همه PASS** |
 
@@ -48,18 +48,18 @@
 | شدت | تعداد | لایه‌ها |
 |---|---|---|
 | 🔴 بحرانی (Critical) | ۵ | Server/Infra (۳)، Server/Security (۱)، Server/Logic (۱) |
-| 🟠 بالا (High) | ۵ | Server/API (۴)، Client/Server Contract (۱) |
-| 🟡 متوسط (Medium) | ۵ | Server (۱)، Client (۱)، Database (۲)، Scripts (۱) |
-| 🟢 کم (Low) | ۲ | Scripts (۱)، Config (۱) |
-| **جمع** | **۱۷** | **همه اصلاح‌شده** |
+| 🟠 بالا (High) | ۶ | Server/API (۴)، Client/Server Contract (۱)، Client (۱) |
+| 🟡 متوسط (Medium) | ۷ | Server (۱)، Client (۱)، Database (۳)، Scripts (۱)، Security/Infra (۱) |
+| 🟢 کم (Low) | ۳ | Scripts (۲)، Config (۱) |
+| **جمع** | **۲۱** | **همه اصلاح‌شده** |
 
 | لایه | تعداد مشکل | اصلاح‌شده |
 |---|---|---|
 | Server (routes + core) | ۹ | ۹ |
-| Security / Infra | ۲ | ۲ |
-| Database | ۲ | ۲ |
-| Client | ۱ | ۱ |
-| Scripts / Config | ۳ | ۳ |
+| Security / Infra | ۳ | ۳ |
+| Database | ۳ | ۳ |
+| Client | ۲ | ۲ |
+| Scripts / Config | ۴ | ۴ |
 
 ### ۱٫۴ مهم‌ترین یافته‌ها در یک نگاه
 
@@ -67,7 +67,9 @@
 2. **دو Rate Limiter اصلی به استور مشترک وصل نبودند** در حالی که `config.ts` در production استفاده از `RATE_LIMIT_STORE=database` را الزامی می‌کند؛ نتیجه: بودجه محدودیت در چند پروسه ضرب می‌شد.
 3. **حسابداری مالی ناسازگار بود:** تأیید استرداد، `payments.status` را تغییر نمی‌داد؛ KPI داشبورد و گزارش مالی هرگز رقم اصلاح‌شده را نمی‌دیدند.
 4. **مدیر می‌توانست خودش را تعلیق/تنزل دهد** و Installation را بدون مدیر فعال رها کند.
-5. **`schema.sql` و مایگریشن‌ها/seed غیرقابل اجرای مکرر بودند** (seed روی UNIQUE می‌شکست، مایگریشن ۰۰۴ بدون `USE`).
+5. **`schema.sql` و مایگریشن‌ها/seed غیرقابل اجرای مکرر بودند** (seed روی UNIQUE می‌شکست، مایگریشن ۰۰۴ بدون `USE`). در تست واقعی MySQL این دور، `seed-base.sql` هم غیر idempotent بود و اصلاح شد.
+6. **ناوبری دسکتاپ با CSS اشتباه پنهان می‌شد:** بلوک قواعد منوی موبایل بیرون از `@media (max-width:1050px)` قرار داشت و `.main-nav` را در همه عرض‌ها `display:none` و همبرگر را همیشه نمایان می‌کرد.
+7. **چند لیمیتر روی یک درخواست خطای `ERR_ERL_DOUBLE_COUNT` می‌دادند** چون استور سفارشی `localKeys` نداشت؛ در لاگ هر درخواست یک ValidationError ثبت می‌شد (در تست واقعی سرور مشاهده شد).
 
 ---
 
@@ -182,11 +184,11 @@
 | `digits.ts` | کامل | — | 0 | 0 | تبدیل ارقام فارسی/لاتین |
 | `labels.ts` | کامل | — | 0 | 0 | برچسب وضعیت‌ها |
 | `persian-date.ts` | کامل | — | 0 | 0 | تبدیل تاریخ |
-| `locations.ts` (۴۰۹) | کامل | — | 0 | 0 | داده آفلاین استان/شهر (عمدی، بدون API) |
+| `locations.ts` (۴۰۹) | کامل | — | 0 | 0 | ۳۱ استان و ۱۸۵ شهر؛ عمداً آفلاین (بدون API) و دارای تست تعداد استان‌ها |
 | `page-02-policy.ts` | کامل | — | 0 | 0 | متن سیاست |
 | `main.tsx` | کامل | — | 0 | 0 | bootstrap + ErrorBoundary |
-| `styles.css` (۳۱۶۵) | کامل | △ | 0 | 0 | ۰ مورد `!important`، مدیا کوئری‌های متعدد، بدون overflow افقی در نقاط کلیدی |
-| `panel-theme.css` (۹۳۷) | کامل | △ | 0 | 0 | تم پنل |
+| `styles.css` (۳۱۳۵) | کامل | △ | 1 | 1 | **رفع بلوک منوی موبایل که بیرون از media query بود و ناوبری دسکتاپ را پنهان می‌کرد**؛ ۰ مورد `!important`؛ مدیا کوئری‌ها بررسی شدند (رفتار مرورگری تست نشد) |
+| `panel-theme.css` (۹۳۷) | کامل | △ | 1 | 1 | ۲ مورد `!important` زائد روی `border-color` (بدون `border-style`) حذف شد؛ ۴ breakpoint بررسی شد |
 | `gholname-home.css` (۱۹۳) | کامل | ✔ | 0 | 0 | لندینگ، mobile-first، `prefers-reduced-motion` لحاظ شده |
 | `LocationFields.test.tsx` و ۱۲ تست دیگر کلاینت | کامل | — | 0 | 0 | ۳۳ تست PASS |
 
@@ -212,7 +214,7 @@
 | `migration_011_review2_hardening.sql` | کامل | — | 0 | 0 |
 | `migration_012_cdr_original_hash.sql` | کامل | — | 0 | 0 |
 | `migration_013_totp_replay.sql` | کامل | — | 0 | 0 |
-| `seed-base.sql` | کامل | — | 0 | 0 |
+| `seed-base.sql` | کامل | — | 1 | 1 → **idempotent شد (`INSERT IGNORE`)** |
 | `seed-dev-users.sql` | کامل | — | 1 | 1 → **idempotent شد** |
 | `migrate.sh` | کامل | — | 0 | 0 |
 | `backup.sh` | کامل | — | 0 | 0 |
@@ -257,6 +259,10 @@
 | S-15 | Scripts / Security scan | 🟢 کم | `scripts/security-scan.sh` | پورتایل | `shasum` روی Linux موجود نیست → اسکن نیمه‌کاره می‌ماند | ✅ اصلاح‌شده (fallback `sha256sum`) |
 | S-16 | Config / Docs | 🟢 کم | `.env.example` | مستندسازی | `MYSQL_BIN`/`MYSQLDUMP_BIN` که اسکریپت‌ها می‌خوانند مستند نبود | ✅ اصلاح‌شده |
 | S-17 | Server / Test | 🟡 متوسط | `server/src/security-features.test.ts:81` | پورتایل تست | انتظار مسیر POSIX در ویندوز شکست می‌خورد (تست، نه کد تولید) | ✅ اصلاح‌شده |
+| S-18 | Database / Seed | 🟡 متوسط | `database/seed-base.sql:5` | Idempotency | اجرای دوباره seed روی `roles.code` و `services.code` با خطای ۱۰۶۲ می‌شکست؛ نصب مجدد/تکرار seed ممکن نبود | ✅ اصلاح‌شده (`INSERT IGNORE`) |
+| S-19 | Client / CSS – ناوبری | 🟠 بالا | `client/src/styles.css:1905` | UI / Layout | قواعد منوی موبایل (`.main-nav{display:none}`, `.menu-button{display:grid}`) بیرون از `@media` بودند؛ در دسکتاپ ناوبری پنهان و همبرگر نمایان می‌شد | ✅ اصلاح‌شده (انتقال به media query 1050px) |
+| S-20 | Server / Rate Limit | 🟡 متوسط | `server/src/shared-limits.ts:16,43` | Log/Validation | استور سفارشی `localKeys` نداشت؛ express-rate-limit همه نمونه‌ها را یک استور می‌دید و در هر درخواست `ERR_ERL_DOUBLE_COUNT` ثبت می‌کرد | ✅ اصلاح‌شده (`localKeys = true`) |
+| S-21 | Scripts / DB | 🟢 کم | `database/migrate.sh:35`, `database/validate-schema.sh:15` | AWK Portability | الگوی regex مقدارهای نقل‌قول‌دار در gawk یک escape نامعتبر داشت و هشدار «unknown regexp escape» می‌داد | ✅ اصلاح‌شده |
 
 ### موارد نیازمند بررسی دستی (بدون اصلاح خودکار)
 
@@ -269,6 +275,7 @@
 | M-05 | مایگریشن ۰۰۴ صفحه ۲۳: `ADD CONSTRAINT` بدون گارد | `database/migration_004_page_23_support_finance.sql` | MySQL 8 `ADD CONSTRAINT IF NOT EXISTS` ندارد؛ رفع واقعی نیازمند Stored Procedure یا بازنویسی مهاجرت است |
 | M-06 | وضعیت `processed` در `refund_requests` استفاده نمی‌شود | `server/src/routes/operations.ts` | نیازمند تصمیم فرایندی: آیا «تأیید» = «پرداخت وجه برگشتی» است یا مرحله‌ای جدا لازم است |
 | M-07 | اسکنر ClamAV و مسیر آپلود در محیط واقعی | `server/src/upload-security.ts`, `.env` | وابسته به زیرساخت خارجی (`UPLOAD_SCAN_MODE`)؛ فقط قابل تأیید در محیط نصب‌شده |
+| M-08 | ناسازگاری مایگریشن‌های تاریخی با MySQL 8 | `database/migration_002/003/004_12/004_20/004_23/004_25/006*.sql` | `ADD COLUMN/INDEX IF NOT EXISTS` و `CREATE INDEX IF NOT EXISTS` فقط MariaDB هستند. این فایل‌ها در `regbroker` واقعی checksum ثبت‌شده دارند و طبق قانون خود `migrate.sh` نباید ویرایش شوند؛ رفع نیازمند تصمیم: بازنویسی با Prepared Statement + re-baseline، یا اعلام رسمی مسیر ارتقا فقط MariaDB |
 
 ---
 
@@ -562,6 +569,60 @@ expect(safeStoragePath(uploadRoot, "..\\secret")).toBeNull(); // جداکنند�
 | `tracking.ts` | نمایش وضعیت با تایم‌لاین (A) و متن ساده (B) | فقط رکورد درخواست، بدون رویداد مشاهده | رویداد `tracking_view` |
 | `operations.ts` (SLA/ارجاع) | تخصیص خودکار vs دستی → زمان پاسخ | منطق ثابت، بدون نمونه‌گیری | Flag در سطح سازمان |
 
+### ۴٫۱۶ `styles.css` — ناوبری دسکتاپ با media query جا‌به‌جا شده (S-19)
+
+**شرح مشکل.** در میانه فایل، بلوک «منوی موبایل» بدون `@media` رها شده بود:
+
+```css
+.main-nav { display: none; position: absolute; top: 82px; ... }
+.menu-button { display: grid; }
+@media (max-width: 1050px) { /* همان قواعد دوباره */ }
+```
+
+چون این قواعد بعد از `.main-nav { display:flex }` و `.menu-button { display:none }` می‌آمدند، در **همه** عرض‌ها ناوبری را پنهان و همبرگر را نمایان می‌کردند؛ یعنی منوی دسکتاپ فقط با کلیک روی همبرگر باز می‌شد.
+
+**اصلاح.** همان قواعد (نسخه کامل‌تر با `max-height`/`overflow-y`) داخل `@media (max-width: 1050px)` منتقل و نسخه تکراری حذف شد. در نتیجه در دسکتاپ ناوبری خطی سر جای خود برمی‌گردد و در ≤۱۰۵۰px منوی کشویی و همبرگر فعال می‌شود. `panel-theme.css` هم دو `!important` زائد روی `border-color` (بدون `border-style`) داشت که حذف شد.
+
+**محدودیت:** این تغییر به‌صورت ایستا (خواندن + بیلد CSS) تأیید شده و در مرورگر واقعی دیده نشده است.
+
+### ۴٫۱۷ `seed-base.sql` — اجرای دوم seed (S-18)
+
+**قبل:** `INSERT INTO roles/services ...` روی `UNIQUE(code)` در اجرای دوم خطای `1062 Duplicate entry` می‌داد؛ `organization_profile` هم روی PK ثابت `id=1` می‌شکست. یعنی seed فقط یک‌بار قابل اجرا بود.
+
+**بعد:** هر چهار دستور به `INSERT IGNORE` تبدیل شدند (roles, services, organization_profile, retention_policies). نتیجه تست واقعی: دو اجرای پشت‌سرهم `OK` و شمارش‌ها بدون تغییر `11 roles / 9 services / 1 profile / 5 policies`.
+
+### ۴٫۱۸ `shared-limits.ts` — دو شمارش برای یک درخواست (S-20)
+
+**شرح.** لیمیترهای global و API و auth روی یک درخواست اجرا می‌شوند. `express-rate-limit` برای تشخیص شمارش تکراری، استورها را با `store.constructor.name` گروه‌بندی می‌کند؛ چون `MemoryCounterStore`/`DatabaseCounterStore` فاقد `localKeys` بودند، هر سه لیمیتر «یک استور» دیده می‌شدند و برای هر درخواست `ValidationError: ERR_ERL_DOUBLE_COUNT` در لاگ ثبت می‌شد.
+
+**اصلاح:**
+
+```ts
+class MemoryCounterStore implements Store {
+  readonly localKeys = true;   // هر لیمیتر شمارنده خودش را دارد
+  ...
+}
+```
+
+و همان خط برای `DatabaseCounterStore` (کلیدها با `keyPrefix` در جدول مشترک ایزوله‌اند). برای شفافیت، هر لیمیتر `requestPropertyName` مستقل (`globalRateLimit` / `apiRateLimit` / `authRateLimit`) هم گرفت. تست واقعی: لاگ سرور پس از اصلاح فقط پیام seed و listening دارد؛ هیچ ValidationError ثبت نشد. سقف‌ها و الگوی ۴۲۹ در تست‌های rate-limit بدون تغییر PASS شدند.
+
+### ۴٫۱۹ `migrate.sh` / `validate-schema.sh` — هشدار AWK (S-21)
+
+الگوی regex مقدارهای نقل‌قول‌دار در gawk یک escape نامعتبر بود و هنگام خواندن `.env` هشدار `regexp escape sequence` می‌داد. به الگوی استاندارد نقل‌قول دوتایی تغییر کرد؛ نتیجه: `migrate.sh --status` بدون هیچ هشدار و با پارس درست مقدارهای نقل‌قول‌دار اجرا می‌شود.
+
+### ۴٫۲۰ تست واقعی MySQL: مایگریشن‌های تاریخی (M-08)
+
+روی MySQL 8.4.7 (WAMP، پورت 3306) در دیتابیس ایزوله `regbroker_abtest`:
+
+| مرحله | نتیجه |
+|---|---|
+| `schema.sql` (۴۵ جدول) + `seed-base.sql` + `seed-dev-users.sql` | ✅ بدون خطا |
+| اجرای دوم `seed-base.sql` و `seed-dev-users.sql` | ✅ بدون خطا (پس از اصلاح S-18) |
+| اجرای مستقیم ۱۷ فایل مایگریشن (بار اول) | ⚠️ ۱۰ فایل OK؛ ۷ فایل با خطای syntax روی `IF NOT EXISTS` شکست |
+| `migrate.sh --baseline` سپس دو اجرای `migrate.sh` | ✅ `applied migrations: 0` در هر دو؛ `--status` = ۱۷ فایل |
+
+**نتیجه‌گیری:** مسیر نصب تازه (schema + baseline) روی MySQL سالم است، اما مسیر «ارتقای نصب موجود» با فایل‌های تاریخی ۰۰۲/۰۰۳/۰۰۴/۰۰۶ روی MySQL کار نمی‌کند. دلیل: MySQL برخلاف MariaDB از `ADD COLUMN/INDEX IF NOT EXISTS` و `CREATE INDEX IF NOT EXISTS` پشتیبانی نمی‌کند. چون این فایل‌ها در دیتابیس واقعی checksum ثبت‌شده دارند، ویرایش آن‌ها `migrate.sh` را با «Checksum mismatch» می‌شکند؛ بنابراین طبق قانون خود پروژه تغییر ندادم و به‌عنوان M-08 برای تصمیم ثبت شد.
+
 ---
 
 ## ۵) نتایج تست‌ها و اعتبارسنجی پس از اصلاح
@@ -570,12 +631,18 @@ expect(safeStoragePath(uploadRoot, "..\\secret")).toBeNull(); // جداکنند�
 
 | دستور | نتیجه | خروجی کلیدی |
 |---|---|---|
-| `npm run test -w server` | ✅ PASS | `Test Files 20 passed (20)` — `Tests 107 passed (107)` (~۲٫۵s) |
-| `npm run test -w client` | ✅ PASS | `Test Files 13 passed (13)` — `Tests 33 passed (33)` (~۷٫۳s) |
+| `npm run test -w server` | ✅ PASS | `Test Files 20 passed (20)` — `Tests 107 passed (107)` (~۷٫۸s) |
+| `npm run test -w client` | ✅ PASS | `Test Files 13 passed (13)` — `Tests 33 passed (33)` (~۱۰٫۴s) |
 | `npm run typecheck` (server + client) | ✅ PASS | `tsc -p tsconfig.json --noEmit` و `tsc -b --pretty false` — بدون خطا |
 | `npm run lint` (server + client) | ✅ PASS | `eslint ... --max-warnings=0` — بدون هشدار |
 | `npm run build` | ✅ PASS | `✓ built in 5.33s` — `index-*.js 355.57 kB │ gzip: 100.06 kB` |
 | `bash scripts/database-check.sh` | ✅ PASS | `database static checks passed: 45 schema tables (>= 42), 17 migrations` |
+| `npm run build -w client` | ✅ PASS | `✓ built in 4.21s` — `index-*.css 86.95 kB │ gzip: 22.76 kB` |
+| MySQL 8.4.7 واقعی — schema + seedها | ✅ PASS | ۴۵ جدول، `11 roles / 9 services / 9 users / 1 announcement` |
+| MySQL 8.4.7 واقعی — اجرای دوم seedها | ✅ PASS | بدون خطای UNIQUE؛ شمارش‌ها بدون تغییر (پس از S-18) |
+| MySQL 8.4.7 واقعی — `migrate.sh` دوبار | ✅ PASS | `applied migrations: 0` هر دو بار؛ `--status` = ۱۷ فایل |
+| MySQL 8.4.7 واقعی — جریان استرداد (API) | ✅ PASS | ایجاد ۲۰۱، تأیید ۲۰۰، تأیید دوم ۴۰۴؛ `payments.status=refunded` |
+| MySQL 8.4.7 واقعی — آپلود دو نسخه مدرک (API) | ✅ PASS | نسخه ۱ سپس ۲ (۲۰۱ هر دو)؛ ۲ پیام رسید و ۲ اعلان |
 
 ### مقایسه قبل/بعد (باسلاین ابتدای کار)
 
@@ -587,11 +654,19 @@ expect(safeStoragePath(uploadRoot, "..\\secret")).toBeNull(); // جداکنند�
 
 > **نکته صداقتی:** Type-Check و Build قبل از اصلاحات هم پاس بودند؛ یعنی این باگ‌ها **از نوعی بودند که کامپایلر نمی‌گیرد** (Validation runtime، Race Condition، ناسازگاری معنایی، Idempotency). تنها شبکه‌ای که آن‌ها را می‌گرفت — تست‌های سرور — خودش از کار افتاده بود؛ به همین دلیل S-01 مهم‌ترین یافته این گزارش است.
 
+### آنچه در این دور بررسی شد (دیتابیس واقعی)
+
+- کل مسیر روی یک دیتابیس **ایزوله** `regbroker_abtest` در همان MySQL/WAMP اجرا شد؛ دیتابیس توسعه‌ای `regbroker` دست‌نخورده ماند و پس از تست حذف شد.
+- جریان استرداد با API واقعی (ورود مدیر با موبایل، CSRF، پایه مالی) اجرا شد: پرداخت `successful` → درخواست `pending` → تأیید → `payments.status='refunded'` و درخواست `approved`؛ تأیید دوم ۴۰۴ داد (گارد `status='pending'` کار می‌کند).
+- آپلود دو نسخه از یک نوع مدرک: نسخه‌های ۱ و ۲ درست ثبت شدند، پیام رسید و اعلان برای متقاضی ساخته شد.
+- `seed-base`/`seed-dev` دو بار و `migrate.sh` دوبار (پس از baseline) اجرا شدند.
+
 ### آنچه بررسی نشد
 
-- هیچ تست End-to-End یا تست واقعی روی MySQL اجرا نشد (کل تست‌ها unit و بدون اتصال DB هستند). اصلاحات S-05، S-07 و S-12 از نظر تایپ/کامپایل و سازگاری با `schema.sql` تأیید شده‌اند، اما **رفتار runtime آن‌ها روی دیتابیس واقعی اجرا نشده است**.
-- رابط کاربری در مرورگر باز و کلیک‌به‌کلیک بررسی نشد (فقط کد و CSS خوانده شد؛ بیلد موفق است).
-- `npm run test` برای کل مونوریپو به‌صورت یکجا اجرا نشد؛ هر workspace جداگانه اجرا شد (همان پوشش، با خروجی خواناتر).
+- **MariaDB واقعی اجرا نشد؛** این دور روی MySQL 8.4.7 بود. مایگریشن‌های تاریخی ۰۰۲/۰۰۳/۰۰۴/۰۰۶ روی MySQL شکست می‌خورند (M-08)؛ مسیر ارتقای MariaDB بدون تغییر فایل‌ها تست نشده است.
+- رابط کاربری در مرورگر باز و کلیک‌به‌کلیک نشد؛ تغییر CSS ناوبری و تم پنل فقط به‌صورت ایستا و از طریق بیلد موفق تأیید شده و **دیده نشده است**.
+- `UPLOAD_SCAN_MODE=off` و `CDR_MODE=off` بودند؛ مسیر ClamAV/CDR واقعی تست نشد (M-07).
+- `npm run test` برای کل مونوریپو یکجا اجرا نشد؛ هر workspace جداگانه با همان پوشش اجرا شد.
 
 ---
 
@@ -727,6 +802,7 @@ export function track(key: string, variant: string, event: string, value?: numbe
 ## ۷) چک‌لیست نهایی پیش از اولین تست A/B روی محیط واقعی
 
 ### زیرساخت و داده
+- [ ] **تصمیم درباره M-08:** اگر ارتقای نصب‌های موجود روی MySQL لازم است، مایگریشن‌های تاریخی با Prepared Statement بازنویسی و نصب‌ها re-baseline شوند؛ در غیر این صورت مسیر ارتقا رسماً MariaDB اعلام شود.
 - [ ] اجرای `migration_014_experimentation.sql` (پس از تأیید محصولی) و همگام‌سازی `schema.sql`.
 - [ ] تأیید `bash scripts/database-check.sh` روی دیتابیس واقعی (نه فقط static).
 - [ ] تنظیم `EXPERIMENT_SALT` در `.env` (کلید تصادفی ≥۳۲ بایت) — **نیازمند بررسی دستی**.
@@ -772,6 +848,13 @@ export function track(key: string, variant: string, event: string, value?: numbe
 | `client/src/App.tsx` | dedupe صفحه‌بندی درخواست‌ها بر اساس `id` |
 | `database/seed-dev-users.sql` | idempotent با `INSERT IGNORE` + `WHERE NOT EXISTS` |
 | `database/migration_004_page_12_messaging.sql` | افزودن `USE regbroker;` |
+| `database/seed-base.sql` | idempotent با `INSERT IGNORE` برای roles/services/profile/retention |
+| `database/migrate.sh` | رفع escape نامعتبر AWK در خواندن `.env` |
+| `database/validate-schema.sh` | همان اصلاح AWK |
+| `client/src/styles.css` | انتقال قواعد منوی موبایل به داخل `@media (max-width:1050px)` |
+| `client/src/panel-theme.css` | حذف دو `!important` زائد |
+| `server/src/rate-limit.ts` | `requestPropertyName` مستقل برای هر لیمیتر |
+| `server/src/shared-limits.ts` | `localKeys = true` در استورهای حافظه و دیتابیس |
 | `scripts/database-check.sh` | حداقل جدول به‌جای عدد دقیق ۴۲ |
 | `scripts/security-scan.sh` | checksum قابل‌حمل (`sha256sum`/`shasum`) |
 | `.env.example` | مستندسازی `MYSQL_BIN`/`MYSQLDUMP_BIN` |

@@ -719,14 +719,14 @@
 
 .ticket-row,
 .ticket-work-item {
-  border-color: #edf3f0 !important;
+  border-color: #edf3f0;
   border-radius: 11px;
   transition: background 150ms ease, border-color 150ms ease;
 }
 
 .ticket-row:hover,
 .ticket-work-item:hover {
-  border-color: #cfe3dc !important;
+  border-color: #cfe3dc;
   background: #fbfdfc;
 }
 

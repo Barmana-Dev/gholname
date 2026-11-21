@@ -9,6 +9,10 @@ import { db } from "./db.js";
  * mode they are per process (development only).
  */
 class MemoryCounterStore implements Store {
+  /** Keys belong to this instance, so two limiters never share a counter.
+   *  Without it express-rate-limit groups every instance of the class and
+   *  reports ERR_ERL_DOUBLE_COUNT when a request passes two limiters. */
+  readonly localKeys = true;
   private hits = new Map<string, { count: number; resetAt: number }>();
   constructor(
     private readonly keyPrefix: string,
@@ -38,6 +42,8 @@ class MemoryCounterStore implements Store {
 }
 
 class DatabaseCounterStore implements Store {
+  /** Counters are namespaced by keyPrefix in the shared table. */
+  readonly localKeys = true;
   constructor(
     private readonly keyPrefix: string,
     private windowMs: number,

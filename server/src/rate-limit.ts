@@ -4,12 +4,24 @@ import { createCounterStore } from "./shared-limits.js";
 export const RATE_LIMIT_MESSAGE =
   "تعداد درخواست‌ها بیش از حد مجاز است. لطفاً کمی بعد دوباره تلاش کنید.";
 
-type LimiterConfig = Pick<Options, "windowMs" | "limit"> & { store?: Store };
+type LimiterConfig = Pick<Options, "windowMs" | "limit"> & {
+  store?: Store;
+  requestPropertyName?: string;
+};
 
-export function createRateLimiter({ windowMs, limit, store }: LimiterConfig) {
+export function createRateLimiter({
+  windowMs,
+  limit,
+  store,
+  requestPropertyName = "rateLimit",
+}: LimiterConfig) {
   return rateLimit({
     windowMs,
     limit,
+    // Several limiters legitimately run on one request (global → API → auth).
+    // They must store their state under distinct names, otherwise
+    // express-rate-limit reports ERR_ERL_DOUBLE_COUNT for every request.
+    requestPropertyName,
     ...(store ? { store } : {}),
     standardHeaders: true,
     legacyHeaders: false,
@@ -35,6 +47,7 @@ export function createRateLimiter({ windowMs, limit, store }: LimiterConfig) {
 export const globalRequestLimiter = createRateLimiter({
   windowMs: 60_000,
   limit: 600,
+  requestPropertyName: "globalRateLimit",
   store: createCounterStore("global-ip", 60_000),
 });
 
@@ -42,6 +55,7 @@ export const globalRequestLimiter = createRateLimiter({
 export const apiRequestLimiter = createRateLimiter({
   windowMs: 60_000,
   limit: 240,
+  requestPropertyName: "apiRateLimit",
   store: createCounterStore("api-ip", 60_000),
 });
 
@@ -49,6 +63,7 @@ export const apiRequestLimiter = createRateLimiter({
 export const authRequestLimiter = createRateLimiter({
   windowMs: 15 * 60_000,
   limit: 40,
+  requestPropertyName: "authRateLimit",
   // Shared store: counters are common to all processes/replicas in production.
   store: createCounterStore("auth-ip", 15 * 60_000),
 });

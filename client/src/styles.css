@@ -1916,43 +1916,11 @@ td:first-child {
 .sidebar-overlay {
   display: none;
 }
-.main-nav {
-  display: none;
-  position: absolute;
-  top: 82px;
-  right: 0;
-  left: 0;
-  max-height: calc(100vh - 116px);
-  overflow-y: auto;
-  background: #fff;
-  padding: 18px max(20px, calc((100vw - 1180px) / 2));
-  flex-direction: column;
-  align-items: stretch;
-  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.08);
-}
-.main-nav.open {
-  display: flex;
-}
-.main-nav a {
-  padding: 9px;
-}
-.main-nav a.active:after {
-  display: none;
-}
-.nav-group summary {
-  justify-content: space-between;
-}
-.nav-submenu {
-  position: static;
-  width: auto;
-  margin: 4px 10px 10px;
-  border-radius: 10px;
-  box-shadow: none;
-  background: #f6f9f8;
-}
-.menu-button {
-  display: grid;
-}
+
+/* At and below 1050px the inline desktop navigation becomes a slide-down
+   menu and the hamburger appears. These rules must stay inside the media
+   query: as top-level rules they hid the navigation and forced the
+   hamburger at every width. */
 @media (max-width: 1050px) {
   .main-nav {
     display: none;
@@ -1960,8 +1928,10 @@ td:first-child {
     top: 82px;
     right: 0;
     left: 0;
+    max-height: calc(100vh - 116px);
+    overflow-y: auto;
     background: #fff;
-    padding: 18px;
+    padding: 18px max(20px, calc((100vw - 1180px) / 2));
     flex-direction: column;
     align-items: stretch;
     box-shadow: 0 15px 30px rgba(0, 0, 0, 0.08);
@@ -1971,6 +1941,9 @@ td:first-child {
   }
   .main-nav a {
     padding: 9px;
+  }
+  .main-nav a.active:after {
+    display: none;
   }
   .nav-group summary {
     justify-content: space-between;
@@ -1982,9 +1955,6 @@ td:first-child {
     border-radius: 10px;
     box-shadow: none;
     background: #f6f9f8;
-  }
-  .main-nav a.active:after {
-    display: none;
   }
   .menu-button {
     display: grid;
